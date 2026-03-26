@@ -16,12 +16,13 @@
 6. [Estado del Arte](#6-estado-del-arte)
 7. [Propuesta de Solución](#7-propuesta-de-solución)
 8. [Implementación Técnica](#8-implementación-técnica)
-9. [Requerimientos](#9-requerimientos)
-10. [Criterios de Aceptación](#10-criterios-de-aceptación)
-11. [Cronograma del Proyecto](#11-cronograma-del-proyecto)
-12. [Diagramas](#12-diagramas)
-13. [Instalación y Uso](#13-instalación-y-uso)
-14. [Referencias](#14-referencias)
+9. [Decisiones de Diseño y Alternativas Evaluadas](#9-decisiones-de-diseño-y-alternativas-evaluadas)
+10. [Requerimientos](#10-requerimientos)
+11. [Criterios de Aceptación](#11-criterios-de-aceptación)
+12. [Cronograma del Proyecto](#12-cronograma-del-proyecto)
+13. [Diagramas](#13-diagramas)
+14. [Instalación y Uso](#14-instalación-y-uso)
+15. [Referencias](#15-referencias)
 
 ---
 
@@ -29,7 +30,7 @@
 
 Banana Kong es un videojuego de plataformas y carrera continua (*endless runner*) desarrollado por FDG Entertainment, disponible para plataformas móviles Android e iOS. El juego presenta a un gorila que debe desplazarse por una selva tropical recolectando plátanos, esquivando obstáculos y utilizando animales de apoyo para avanzar. Su espacio de acciones reducido (salto/planeo, dash y agacharse) lo convierte en un candidato adecuado para el entrenamiento de un agente basado en aprendizaje por refuerzo.
 
-Este proyecto propone construir un agente que perciba el juego exclusivamente a través de la pantalla y ejecute acciones simulando entradas de teclado, sin acceso a la memoria del juego ni modificación del APK. El módulo de percepción usa visión por computador (OpenCV) con detectores especializados por tipo de objeto; el módulo de decisión usa PPO (Proximal Policy Optimization) implementado con Stable-Baselines3.
+Este proyecto propone construir un agente que perciba el juego exclusivamente a través de la pantalla y ejecute acciones simulando entradas de teclado, sin acceso a la memoria del juego ni modificación del APK. El módulo de percepción usa visión por computador (OpenCV) con detectores especializados por tipo de objeto; el módulo de decisión usa PPO (Proximal Policy Optimization) implementado con Stable-Baselines3 con frame stacking de 4 estados consecutivos.
 
 ---
 
@@ -50,7 +51,7 @@ Los videojuegos comerciales son sistemas de caja negra: no exponen su estado int
 - **Acciones mediante teclado simulado:** Las interacciones se ejecutan a través de `pyautogui` simulando las teclas configuradas en BlueStacks Game Controls. No se usa ADB por problemas de latencia y conflicto con eventos táctiles.
 - **Resolución fija 960×540:** Todos los detectores están calibrados para esta resolución. Cambiarla requiere recalibrar ROIs y umbrales.
 - **Latencia objetivo:** El ciclo completo captura → percepción → decisión → acción debe completarse en menos de 100 ms.
-- **Hardware de consumo:** Desarrollo en equipos con GPU NVIDIA de gama media. Sin clústeres ni instancias cloud.
+- **Hardware de consumo:** Desarrollo en equipos con GPU AMD RX 9070 XT. El entrenamiento corre en CPU dado que ROCm (el equivalente de CUDA para AMD) no tiene soporte oficial en Windows.
 
 ### 3.2 Restricciones del Entorno de Juego
 
@@ -80,7 +81,7 @@ Los videojuegos comerciales son sistemas de caja negra: no exponen su estado int
 - Pipeline completo: captura → percepción → decisión → acción
 - Detectores especializados para: Kong, barriles, bananas, agua, rocas, muros (madera y piedra), game over
 - Entorno compatible con la interfaz OpenAI Gymnasium
-- Entrenamiento con PPO usando Stable-Baselines3
+- Entrenamiento con PPO usando Stable-Baselines3 con frame stacking
 - Reinicio automático de episodios
 - Evaluación frente a política aleatoria de referencia (*baseline*)
 - Documentación técnica completa
@@ -138,33 +139,41 @@ Proyectos como el bot para Subway Surfers de Yeh et al. (2021) usaron visión po
 BlueStacks (960x540)
         │
         ▼
-┌───────────────┐
-│    mss        │  Captura de pantalla (~60 FPS)
-└───────┬───────┘
-        │ frame BGR
-        ▼
-┌───────────────┐
-│  Perceptor    │  Corre todos los detectores sobre el frame
-└───────┬───────┘
-        │ estado (dict)
-        ▼
-┌───────────────┐
-│  BananaKong   │  Entorno Gymnasium: convierte estado → obs vector
-│  Env          │  Calcula reward, detecta terminación
-└───────┬───────┘
-        │ obs (24 floats)
-        ▼
-┌───────────────┐
-│  PPO Agent    │  Stable-Baselines3: selecciona acción 0-3
-│  (MlpPolicy)  │
-└───────┬───────┘
-        │ acción
-        ▼
-┌───────────────┐
-│  ModuloAccio  │  pyautogui: ejecuta tecla en BlueStacks
-│  nes          │
-└───────────────┘
+┌─────────────────────────────────────────┐
+│              Perceptor                  │
+│  ┌──────────────────┐  ┌─────────────┐ │
+│  │   Hilo Rápido    │  │ Hilo Lento  │ │
+│  │ Kong + Bananas   │  │ Barriles    │ │
+│  │ + Colisiones     │  │ Rocas       │ │
+│  │ (~20 FPS)        │  │ Muros       │ │
+│  └────────┬─────────┘  │ Agua        │ │
+│           │             │ Game Over   │ │
+│           └──────┬──────┘             │ │
+│                  ▼                    │ │
+│            Estado compartido          │ │
+│            (threading.Lock)           │ │
+└──────────────────┬──────────────────-─┘
+                   │ estado (dict)
+                   ▼
+        ┌──────────────────┐
+        │  BananaKongEnv   │  Entorno Gymnasium:
+        │  (entorno.py)    │  obs vector 13 floats × 4 frames
+        │                  │  Calcula reward, detecta terminación
+        └────────┬─────────┘
+                 │ obs (52 floats con frame stacking)
+                 ▼
+        ┌──────────────────┐
+        │   PPO Agent      │  Stable-Baselines3 MlpPolicy
+        │ + VecFrameStack  │  selecciona acción 0-3
+        └────────┬─────────┘
+                 │ acción
+                 ▼
+        ┌──────────────────┐
+        │  ModuloAcciones  │  pyautogui: ejecuta tecla en BlueStacks
+        └──────────────────┘
 ```
+
+La arquitectura de dos hilos en el Perceptor es clave: el hilo rápido corre Kong y Bananas en cada frame (crítico para la detección de colisiones y el reward), mientras el hilo lento corre el resto de detectores con cadencias variables, sin bloquear al agente.
 
 ### 7.2 Espacio de Acciones
 
@@ -175,136 +184,239 @@ BlueStacks (960x540)
 | 2 | DASH | D | Impulso hacia adelante |
 | 3 | BAJAR | S | Deslizarse hacia abajo |
 
-**Nota sobre la implementación de controles:** Inicialmente se intentó simular el dash mediante `pyautogui.drag()`, lo que provocaba que BlueStacks registrara el inicio del drag como un tap, haciendo saltar a Kong antes del dash. La solución adoptada fue configurar el dash directamente en el **Game Controls de BlueStacks** como una tecla (`D`), eliminando por completo la necesidad de simular gestos táctiles. Lo mismo aplica para W (salto/planeo) y S (bajar). El `keyDown`/`keyUp` de `pyautogui` sobre estas teclas globales no genera el problema del tap previo.
+**Nota sobre la implementación de controles:** Inicialmente se intentó simular el dash mediante `pyautogui.drag()`, lo que provocaba que BlueStacks registrara el inicio del drag como un tap, haciendo saltar a Kong antes del dash. La solución adoptada fue configurar el dash directamente en el **Game Controls de BlueStacks** como una tecla (`D`), eliminando por completo la necesidad de simular gestos táctiles.
 
-**Planeo implícito:** El agente controla la duración del planeo eligiendo la acción PLANEAR durante múltiples steps consecutivos. Mientras seleccione PLANEAR, el módulo mantiene W presionado (`keyDown`). Al seleccionar cualquier otra acción, suelta W (`keyUp`). Esto permite que la duración del planeo emerja del comportamiento aprendido sin necesidad de una acción separada.
+**Planeo implícito:** Mientras el agente seleccione PLANEAR en steps consecutivos, el módulo mantiene W presionado (`keyDown`). Al seleccionar cualquier otra acción, suelta W (`keyUp`). Esto permite que la duración del planeo emerja del comportamiento aprendido sin necesidad de una acción separada.
 
 ### 7.3 Función de Recompensa
 
 | Evento | Recompensa |
 |--------|-----------|
-| Sobrevivir cada step | +0.01 |
+| Sobrevivir cada step | +0.02 |
 | Banana recogida | +1.0 por banana |
-| Game over | -10.0 |
+| Game over | −10.0 |
 
-**Detección de bananas recogidas:** Se lee el contador de bananas del HUD del juego. Si el valor del HUD aumenta respecto al step anterior, Kong recogió una o más bananas. Este enfoque es más confiable que medir la disminución de bananas visibles en pantalla, ya que el número de bananas visibles varía también cuando el escenario avanza y las bananas salen del ROI sin ser recogidas.
+**Detección de bananas recogidas:** Se utiliza detección de colisión por bounding box entre el rect de Kong (expandido 10px) y los rects de bananas visibles. La lógica del pico de colisiones (`_pico_colisiones`) acumula el máximo de colisiones simultáneas y contabiliza cuando baja a cero, evitando doble conteo y falsos positivos por frames perdidos. Esta lógica corre en el hilo rápido del Perceptor a máxima velocidad, sin perder colisiones entre steps del agente.
 
-**Restricción de agua:** La detección de agua activa el flag `hay_agua = True` en la observación. Esto informa al agente que una zona peligrosa está presente, incentivando indirectamente a evitar entrar a mundos alternativos a través de zonas acuáticas.
+**Balance del reward:** El reward de supervivencia (+0.02/step) se calibró para que en un episodio de ~100 steps genere +2.0, inferior al costo del game over (−10.0). Esto incentiva sobrevivir sin que el agente aprenda que morir es gratuito.
+
+**Período de gracia:** El game over se ignora durante los primeros 10 steps de cada episodio para evitar falsos positivos durante la transición de pantalla del reinicio.
+
+### 7.4 Vector de Observación
+
+El estado se convierte a un vector de **13 floats normalizados [0, 1]**:
+
+```
+[0]   kong_cx
+[1]   kong_cy
+[2]   banana1_dx  (distancia horizontal relativa a Kong, centrado en 0.5)
+[3]   banana1_cy
+[4]   banana2_dx
+[5]   banana2_cy
+[6]   hay_agua    (0 o 1)
+[7]   barril1_dx  (distancia horizontal relativa a Kong)
+[8]   barril1_cy
+[9]   roca1_dx    (distancia horizontal relativa a Kong)
+[10]  roca1_cy
+[11]  muro1_dx    (distancia horizontal relativa a Kong)
+[12]  muro1_cy
+```
+
+Los obstáculos y bananas se expresan como **distancia horizontal relativa a Kong** (centrada en 0.5) en lugar de posición absoluta. Esto le da al agente información invariante: un valor de 0.7 siempre significa "el obstáculo está 0.2 a la derecha de Kong", independientemente de dónde esté Kong en pantalla.
+
+Con **frame stacking de 4 estados**, el observation space efectivo es de **52 floats**, permitiendo al agente inferir velocidad y dirección de los obstáculos a partir del cambio entre estados consecutivos.
 
 ---
 
 ## 8. Implementación Técnica
 
-### 8.1 Módulo de Percepción — Detectores
+### 8.1 Módulo de Percepción — Arquitectura de Hilos
 
-El `Perceptor` captura el frame **una sola vez por ciclo** y lo distribuye a todos los detectores, evitando múltiples capturas costosas.
+El `Perceptor` opera con dos hilos de detección independientes más un hilo de display:
 
-#### Estrategia de detección por tipo de objeto
+**Hilo rápido** (corre en cada frame, ~20 FPS):
+- Detector de Kong (CSRT + HSV + Template Matching)
+- Detector de Bananas (HSV)
+- Lógica de colisión banana-Kong
 
-La mayoría de los detectores siguen un enfoque **híbrido HSV + Template Matching**. Los detectores de agua y bananas usan solo HSV por la alta distintividad de sus colores.
+**Hilo lento** (cadencia por detector):
+- Game Over: cada 10 frames
+- Agua: cada 3 frames
+- Barriles: cada 2 frames
+- Rocas: cada 3 frames
+- Muros: cada 3 frames
 
-**¿Por qué HSV + Template Matching y no solo uno de los dos?**
+El estado compartido se protege con `threading.Lock()`. El agente nunca espera a los detectores — siempre lee el último estado disponible. Esta separación garantiza que la detección de colisiones (crítica para el reward de bananas) corre a máxima velocidad sin ser bloqueada por los detectores más lentos.
 
-- **Solo HSV:** Insuficiente para objetos que comparten colores con el fondo (ej. muros de madera vs. troncos de árbol, ambos marrones). Da demasiados falsos positivos.
-- **Solo Template Matching:** Lento sobre el frame completo y sensible a variaciones de escala no anticipadas. Sobre el frame de 960×540, buscar un template de 60×60px en múltiples escalas toma ~15ms por objeto.
-- **Híbrido:** HSV reduce el frame a un conjunto pequeño de blobs candidatos (típicamente 1–5 por objeto). Template matching corre solo sobre esos recortes pequeños, siendo 10–50x más rápido y más preciso.
+### 8.2 Estrategia de Detección por Tipo de Objeto
+
+La mayoría de los detectores siguen un enfoque **híbrido HSV + Template Matching**:
+
+- **Solo HSV:** Insuficiente para objetos que comparten colores con el fondo. Da demasiados falsos positivos.
+- **Solo Template Matching:** Lento sobre el frame completo y sensible a variaciones de escala.
+- **Híbrido:** HSV reduce el frame a un conjunto pequeño de blobs candidatos. Template matching corre solo sobre esos recortes, siendo 10–50x más rápido y más preciso.
 
 | Detector | Estrategia | Razón |
 |----------|-----------|-------|
-| Kong | HSV (marrón piel) + template multi-pose | Varias poses (correr, saltar, planear, dash) |
-| Bananas | HSV (amarillo intenso) | Color muy distintivo, ROI excluye zona de Kong |
-| Agua | HSV (azul/celeste) | Color único en la escena, sin template necesario |
-| Barriles | HSV (marrón V alto) + template | V alto distingue interior brillante del suelo oscuro |
-| Rocas | Template matching (TM_CCOEFF_NORMED) | Dos tipos: roca orgánica y roca con estructura; colores no separables con HSV del fondo |
-| Muros madera | HSV (naranja S>150) + template | S alto distingue de troncos (S~100-120) |
-| Muros piedra | HSV (gris rosado) + template | Rango estrecho de saturación |
-| Game Over | Template matching puro sobre ROI central | Pantalla estática, muy confiable |
+| Kong | CSRT Tracker + HSV + Template multi-pose | CSRT para seguimiento fluido; HSV+Template para inicialización y recuperación |
+| Bananas | HSV (S≥180, amarillo) | Color muy distintivo; S alto excluye follaje y estatuas |
+| Agua | HSV (azul/celeste) | Color único en la escena |
+| Barriles | HSV (marrón V alto) + Template | V alto distingue interior brillante del suelo oscuro |
+| Rocas | Template matching (TM_CCOEFF_NORMED) a media resolución | Colores no separables del fondo con HSV |
+| Muros madera | HSV (naranja S>150) + Template | S alto distingue de troncos (S~100-120) |
+| Muros piedra | HSV (gris rosado) + Template | Rango estrecho de saturación |
+| Game Over | Template matching sobre ROI central | Pantalla estática, muy confiable |
 
-#### Configuración de ROIs
+### 8.3 Detector de Kong — CSRT Tracker
 
-Los ROIs están expresados en **píxeles absolutos** calibrados para la resolución 960×540 de BlueStacks. Cambiar la resolución requiere recalibrar todos los ROIs.
+El detector de Kong usa una arquitectura de tres capas:
 
-```python
-# Ejemplos de ROIs utilizados
-ROI_KONG     = (0, 60, 420, 510)      # tercio izquierdo, excluye HUD
-ROI_BARRILES = (250, 80, 900, 480)    # excluye zona de Kong
-ROI_BANANAS  = (350, 60, 960, 510)    # excluye Kong y su boca
-ROI_AGUA     = (0, 300, 960, 510)     # franja inferior
-ROI_GAMEOVER = (200, 100, 760, 400)   # zona central de pantalla
-```
+1. **HSV + Template Matching:** Inicializa la detección. Busca blobs con color de piel de Kong en el ROI `(80, 60, 420, 510)` y verifica con template matching (9 poses: inicio, corriendo×2, saltando×2, paracaídas, dash, liana, guacamaya). Umbral de confianza: 0.65.
 
-#### Templates
+2. **CSRT Tracker:** Una vez inicializado con el bounding box de Kong, sigue a Kong frame a frame sin depender del color. Es robusto ante cambios de apariencia y oclusiones parciales. Se valida en cada frame que el bbox esté dentro del ROI, tenga tamaño razonable (20–250px) y posición horizontal válida (cx entre 0.05 y 0.45).
 
-Todos los templates se entregan como **PNG con canal alpha real** (no fondo negro). El proceso de generación fue:
+3. **Fallback:** Si CSRT falla, retorna la última posición conocida por máximo 10 frames mientras intenta reinicializar con HSV+Template.
 
-1. Recortar el objeto del screenshot del juego con fondo removido (removebg.com)
-2. Si el PNG resultante tiene 3 canales con fondo negro (caso común con removebg), regenerar el alpha con `cv2.threshold(gris, 8, 255, THRESH_BINARY)`
-3. Guardar como RGBA con el alpha correcto
-
-El template matching usa `TM_CCOEFF_NORMED` con la alpha mask:
-```python
-cv2.matchTemplate(recorte, template, cv2.TM_CCOEFF_NORMED, mask=alpha)
-```
-Se eligió `TM_CCOEFF_NORMED` sobre `TM_SQDIFF_NORMED` porque el máximo es la mejor coincidencia (más intuitivo), es más robusto ante variaciones de brillo, y no favorece zonas oscuras del frame cuando no hay alpha.
-
-### 8.2 Vector de Observación
-
-El estado del juego se convierte a un vector de **24 floats normalizados [0, 1]**:
-
-```
-[0-1]   kong_cx, kong_cy
-[2-7]   barril1_cx, barril1_cy, barril2_cx, barril2_cy, barril3_cx, barril3_cy
-[8-13]  banana1_cx, banana1_cy, banana2_cx, banana2_cy, banana3_cx, banana3_cy
-[14-17] muro1_cx, muro1_cy, muro2_cx, muro2_cy
-[18]    hay_agua (0 o 1)
-[19-23] kong_pose one-hot (inicio, corriendo, saltando, paracaidas, dash)
-```
-
-Los barriles, bananas y muros se ordenan por distancia horizontal a Kong, de modo que el índice 0 siempre corresponde al más cercano (el más relevante para la decisión). Las rocas no se incluyen explícitamente en el vector de observación — el agente aprende a evitarlas mediante la penalización de game over al colisionar con ellas.
-
-### 8.3 Módulo de Acciones
+### 8.4 Configuración de ROIs
 
 ```python
-# acciones.py
-TECLA_SALTAR = 'w'   # configurada en BlueStacks Game Controls
-TECLA_DASH   = 'd'
-TECLA_BAJAR  = 's'
+ROI_KONG      = (80, 60, 420, 510)    # franja izquierda, excluye HUD
+ROI_BARRILES  = (160, 80, 900, 480)   # excluye zona de Kong
+ROI_BANANAS   = (160, 60, 960, 510)   # ROI amplio para colisión
+ROI_AGUA      = (0, 300, 960, 510)    # franja inferior
+ROI_GAMEOVER  = (200, 100, 760, 400)  # zona central de pantalla
+ROI_MUROS     = (200, 60, 960, 510)   # excluye zona de Kong
+ROI_ROCAS     = (200, 60, 960, 510)   # excluye zona de Kong
 ```
 
-El estado `_planeando` evita enviar `keyDown` repetidos:
-```python
-elif accion == PLANEAR:
-    if not self._planeando:
-        pyautogui.keyDown(TECLA_SALTAR)
-        self._planeando = True
-    # Si ya planeaba: no hace nada, W sigue presionada
-```
-
-### 8.4 Entrenamiento
+### 8.5 Entrenamiento
 
 ```python
-# entrenar.py
 PPO_CONFIG = {
-    "learning_rate": 3e-4,
-    "n_steps":       512,
-    "batch_size":    64,
+    "learning_rate": 2e-4,
+    "n_steps":       2048,
+    "batch_size":    128,
     "n_epochs":      10,
     "gamma":         0.99,
     "gae_lambda":    0.95,
     "clip_range":    0.2,
+    "ent_coef":      0.01,
 }
+
+N_STACK = 4  # frame stacking
+```
+
+```python
+env = DummyVecEnv([lambda: Monitor(BananaKongEnv(), RUTA_LOGS)])
+env = VecFrameStack(env, n_stack=N_STACK)
+modelo = PPO("MlpPolicy", env, **PPO_CONFIG)
 ```
 
 ```bash
-python entrenar.py              # desde cero
-python entrenar.py --continuar  # continuar desde checkpoint
+python -m entrenamiento.entrenar              # desde cero
+python -m entrenamiento.entrenar --continuar  # continuar desde checkpoint
 ```
-
-Los checkpoints se guardan cada 10.000 steps en `modelos/checkpoints/`. El modelo final se guarda en `modelos/banana_kong_ppo.zip`.
 
 ---
 
-## 9. Requerimientos
+## 9. Decisiones de Diseño y Alternativas Evaluadas
+
+Esta sección documenta las principales decisiones de diseño tomadas durante el desarrollo, junto con las alternativas evaluadas y los criterios de selección.
+
+### 9.1 Detección de Kong: Evolución del Enfoque
+
+**Problema:** Kong comparte colores muy similares con muros de madera (H=13-42, S=100-170) y otros elementos del fondo, haciendo que HSV solo genere demasiados falsos positivos.
+
+**Alternativas evaluadas:**
+
+| Alternativa | Resultado | Razón de descarte |
+|-------------|-----------|-------------------|
+| HSV puro | ❌ Inestable | Falsos positivos con muros y barriles |
+| HSV + Template Matching | ⚠️ Funcional pero titila | Sin memoria temporal entre frames |
+| KCF Tracker | ❌ Inestable | Titila en cambios de pose (dash, paracaídas) |
+| CSRT Tracker solo | ⚠️ Bueno pero se desvía | Sin mecanismo de corrección cuando pierde a Kong |
+| MOG2 (Background Subtraction) | ❌ Descartado | El fondo animado (árboles, nubes) genera demasiado ruido |
+| Franja HSV fija | ⚠️ Rápido pero impreciso | Kong en cx≈0.25 pero titila sin suavizado |
+| YOLO / Deep Learning | ❌ No viable en CPU | AMD RX 9070 XT sin soporte ROCm en Windows |
+
+**Decisión final:** CSRT + HSV + Template Matching en cascada. HSV+Template inicializa y recupera; CSRT sigue frame a frame con validación de bbox (ROI, tamaño, posición cx 0.05–0.45). Fallback de 10 frames si se pierde la detección.
+
+### 9.2 Detección de Bananas Recogidas: Evolución del Reward
+
+**Problema:** Contar bananas recogidas con precisión es crítico para el reward, pero varios enfoques fallaron.
+
+| Alternativa | Resultado | Problema |
+|-------------|-----------|---------|
+| `bananas_ahora < bananas_prev` | ❌ | Falsos positivos cuando bananas salen del ROI |
+| OCR del HUD (Tesseract) | ❌ | Demasiado lento para tiempo real |
+| TTL/cooldown por posición | ❌ | El escenario se mueve, posición cambia |
+| Delta de colisiones activas | ⚠️ | Pierde bananas en steps rápidos |
+| **Pico de colisiones en hilo rápido** | ✅ | Robusto, corre a máxima velocidad |
+
+**Decisión final:** Lógica del pico de colisiones (`_pico_colisiones`) corriendo en el hilo rápido del Perceptor. El pico acumula el máximo de colisiones simultáneas y contabiliza cuando baja a cero, independientemente de la velocidad del agente.
+
+### 9.3 Arquitectura del Perceptor: Un Hilo vs. Dos Hilos
+
+**Problema inicial:** Un solo hilo corría todos los detectores secuencialmente. El detector de Kong (CSRT) y los detectores lentos (muros con 9 escalas × 2 tipos) se bloqueaban mutuamente, causando que las colisiones de bananas se perdieran entre steps.
+
+**Decisión:** Separar en hilo rápido (Kong + Bananas) y hilo lento (resto). El GIL de Python impide paralelismo real en CPU, pero la separación garantiza que la lógica crítica de colisiones no se bloquea por los detectores costosos.
+
+**Limitación del GIL:** Se exploró `multiprocessing` para paralelismo real, pero el costo de serialización de frames entre procesos (cada frame BGR de 960×540 pesa ~1.5MB) resultó mayor que el beneficio. La arquitectura de dos hilos con estado compartido y `threading.Lock()` es el compromiso óptimo para este caso.
+
+### 9.4 Vector de Observación: Posición Absoluta vs. Relativa
+
+**Versión inicial (24 floats, posición absoluta):**
+```
+[0-1] kong_cx, kong_cy
+[2-7] barril1_cx, barril1_cy, barril2_cx, barril2_cy, ...
+```
+
+**Problema:** La posición absoluta de un barril no le dice al agente si está cerca o lejos de Kong. cx=0.5 puede ser peligroso o seguro dependiendo de dónde esté Kong.
+
+**Versión actual (13 floats, distancia relativa):**
+```
+[7] barril1_dx = clip(barril_cx - kong_cx + 0.5, 0, 1)
+```
+Un valor de 0.5 significa "en la misma posición que Kong"; >0.5 significa a la derecha; <0.5 a la izquierda. Esta representación es invariante a la posición de Kong en pantalla.
+
+### 9.5 Frame Stacking
+
+**Problema:** Con un solo estado, el agente no puede inferir velocidad ni dirección de los obstáculos. Un barril a cx=0.7 puede estar acercándose o alejándose — con un solo frame es imposible saberlo.
+
+**Alternativas consideradas:**
+
+| Alternativa | Evaluación |
+|-------------|-----------|
+| Estado único (sin stacking) | El agente ve posición pero no movimiento |
+| Agregar velocidad al vector | Requiere calcular deltas manualmente y añade ruido |
+| Frame stacking con imágenes (CnnPolicy) | Requiere cambiar toda la arquitectura a CNN; impracticable con detectores actuales |
+| **VecFrameStack con vectores (MlpPolicy)** | ✅ Trivial de implementar; observation space pasa de 13 a 52 floats |
+
+**Decisión final:** `VecFrameStack(env, n_stack=4)` de Stable-Baselines3. El agente recibe los últimos 4 estados concatenados (52 floats), permitiendo inferir velocidad sin cambios en los detectores ni en el entorno.
+
+### 9.6 Hiperparámetros PPO: Evolución
+
+| Experimento | Config | Resultado | Problema |
+|-------------|--------|-----------|---------|
+| PPO_6 | lr=1e-4, n_steps=1024, batch=64 | reward máx=12.33 | Alta varianza, oscilación |
+| PPO_7 | lr=3e-4, n_steps=512, batch=64, game_over=-20 | reward todo negativo | -20 dominó sobre reward positivo |
+| PPO_10 | lr=2e-4, n_steps=2048, batch=128, game_over=-10 | reward máx=5.08 ✅ | Tendencia positiva clara |
+
+**Config final:** `lr=2e-4` (compromiso entre velocidad y estabilidad), `n_steps=2048` (más experiencia por update, menor oscilación), `batch_size=128` (proporcional a n_steps), `ent_coef=0.01` (incentivo de exploración), `game_over=-10` (penalización proporcional al reward acumulado típico).
+
+### 9.7 Algoritmo de RL: PPO vs. Alternativas
+
+| Algoritmo | Evaluación para Banana Kong |
+|-----------|----------------------------|
+| **PPO** ✅ | Robusto con acciones discretas, estable con observaciones ruidosas, soporte nativo en SB3 |
+| DQN | Funciona con acciones discretas pero requiere replay buffer grande; menos estable con observaciones ruidosas |
+| SAC | Diseñado para acciones continuas; no aplica directamente |
+| QR-DQN | Variante distribucional de DQN; potencialmente mejor con rewards variables pero más complejo |
+| A3C/A2C | Requiere múltiples entornos paralelos; impracticable con un solo BlueStacks |
+
+---
+
+## 10. Requerimientos
 
 ### Funcionales
 
@@ -333,7 +445,7 @@ Los checkpoints se guardan cada 10.000 steps en `modelos/checkpoints/`. El model
 
 ---
 
-## 10. Criterios de Aceptación
+## 11. Criterios de Aceptación
 
 | ID | Criterio | Métrica |
 |----|----------|---------|
@@ -349,7 +461,7 @@ Los checkpoints se guardan cada 10.000 steps en `modelos/checkpoints/`. El model
 
 ---
 
-## 11. Cronograma del Proyecto
+## 12. Cronograma del Proyecto
 
 > **Versión del cronograma:** v2 (entrega `crono1`) — 2026-03-11
 
@@ -358,9 +470,9 @@ Los checkpoints se guardan cada 10.000 steps en `modelos/checkpoints/`. El model
 | 1–2 | Selección del videojuego | Evaluación de candidatos, criterios de selección, decisión documentada, boceto del pipeline | P1: Documento de selección y justificación de Banana Kong |
 | 3–4 | Configuración del entorno | Instalación BlueStacks 960×540, configuración Game Controls (W/D/S), instalación de dependencias Python, benchmark FPS | P2: Captura funcional a ≥ 15 FPS con reporte de latencia en consola |
 | 4–7 | Módulo de percepción | Preparación de templates PNG con alpha; detectores de Kong (9 poses), bananas, agua, barriles, rocas (2 tipos), muros (madera y piedra), game over; integración en clase `Perceptor`; calibración de ROIs | P3: `perceptor.py` en modo demo con bounding boxes en tiempo real sobre todos los objetos |
-| 5–7 | Entorno Gymnasium | Diseño del espacio de observación (24 floats) y acciones (Discrete(4)); implementación de `BananaKongEnv`; función de recompensa con contador del HUD; reinicio automático en 3 pasos; período de gracia de 60 steps | P4: Entorno ejecutando episodios completos sin errores + `baseline.py` con 10 episodios de política aleatoria |
-| 7–8 | Integración del pipeline | Integración captura → percepción → decisión → acción; medición de latencia end-to-end; corrección de cuellos de botella; validación de ROIs en partidas reales | P5: Pipeline completo corriendo 5 episodios sin intervención manual, latencia p90 < 100 ms |
-| 8–13 | Entrenamiento RL con PPO | Configuración de hiperparámetros; corrida inicial 100k pasos; monitoreo en TensorBoard; ajuste de hiperparámetros; corrida completa ≥ 500k pasos con checkpoints cada 10k | P6: Checkpoint a 100k pasos con curva de reward creciente<br>P7: Modelo final `banana_kong_ppo.zip` a ≥ 500k pasos |
+| 5–7 | Entorno Gymnasium | Diseño del espacio de observación (13 floats × 4 frames) y acciones (Discrete(4)); implementación de `BananaKongEnv`; función de recompensa con detección de colisión; reinicio automático en 3 pasos; período de gracia de 10 steps | P4: Entorno ejecutando episodios completos sin errores + `evaluar.py` con baseline aleatorio |
+| 7–8 | Integración del pipeline | Integración captura → percepción → decisión → acción; arquitectura de dos hilos en Perceptor; medición de latencia end-to-end; validación de ROIs en partidas reales | P5: Pipeline completo corriendo 5 episodios sin intervención manual, latencia p90 < 100 ms |
+| 8–13 | Entrenamiento RL con PPO | Configuración de hiperparámetros; corridas de 50k pasos para validación; ajuste de hiperparámetros y rewards; corrida completa ≥ 500k pasos con frame stacking y checkpoints cada 10k | P6: Checkpoint a 100k pasos con curva de reward creciente<br>P7: Modelo final `banana_kong_ppo.zip` a ≥ 500k pasos |
 | 13–14 | Evaluación | Evaluación formal agente PPO (30 episodios); evaluación baseline aleatorio (30 episodios); t-test de medias; verificación restricción de mundos alternativos | P8: Informe de evaluación con tabla de puntajes, t-test y distribución (boxplot) |
 | 14–15 | Optimización y robustez | Ajuste fino según fallos identificados; re-entrenamiento parcial si hay regresión; pruebas de robustez; corrección de detectores con mayor tasa de error | P9: Agente refinado con puntaje promedio ≥ 5.000 puntos |
 | 15–16 | Documentación y entrega | Limpieza del repositorio; actualización del README con resultados; reporte final; grabación de demo (≥ 3 episodios); presentación | P10: Entrega final con repositorio documentado, demo en video y todos los CA verificados |
@@ -394,7 +506,7 @@ Entrega crono1: semana 4 (branch crono1)
 
 ---
 
-## 12. Diagramas
+## 13. Diagramas
 
 ### Arquitectura del Sistema
 ![Arquitectura](diagramas/arquitectura_sistemas.png)
@@ -407,13 +519,13 @@ Entrega crono1: semana 4 (branch crono1)
 
 ---
 
-## 13. Instalación y Uso
+## 14. Instalación y Uso
 
 ### Requisitos
  
 - Python 3.9+
 - BlueStacks 5
-- NVIDIA GPU con CUDA (recomendado)
+- GPU AMD o NVIDIA (opcional; el entrenamiento corre en CPU por limitaciones de soporte ROCm en Windows)
  
 ---
  
@@ -482,8 +594,6 @@ Dentro del juego, abre el **Game Controls** (ícono de teclado en la barra later
 | `D` | Dash (impulso hacia adelante) |
 | `S` | Bajar / Deslizarse |
  
-> **¿Por qué teclas y no gestos táctiles?** BlueStacks interpreta el inicio de cualquier drag como un tap, lo que hacía que Kong saltara antes de ejecutar el dash. Configurar las acciones como teclas en Game Controls elimina este problema completamente.
- 
 ---
  
 ### 4. Estructura del proyecto
@@ -494,9 +604,7 @@ Aprendizaje-por-refuerzo/
 ├── deteccion/
 │   ├── templates/
 │   │   ├── barril-bg.png
-│   │   ├── barril_danado-bg.png
 │   │   ├── kong_corriendo1-bg.png
-│   │   ├── kong_corriendo2-bg.png
 │   │   ├── kong_corriendo3-bg.png
 │   │   ├── kong_dash-bg.png
 │   │   ├── kong_guacamaya-bg.png
@@ -524,8 +632,7 @@ Aprendizaje-por-refuerzo/
 ├── entorno/
 │   ├── __init__.py
 │   ├── entorno.py
-│   ├── perceptor.py
-│   └── reward_bananas.py
+│   └── perceptor.py
 │
 ├── entrenamiento/
 │   └── entrenar.py
@@ -545,8 +652,6 @@ Aprendizaje-por-refuerzo/
  
 ### 5. Probar detectores individualmente
  
-Antes de entrenar, verifica que cada detector funciona correctamente con BlueStacks abierto y el juego corriendo:
- 
 ```bash
 python -m deteccion.detector_kong
 python -m deteccion.detector_bananas
@@ -555,10 +660,8 @@ python -m deteccion.detector_rocas
 python -m deteccion.detector_muros
 python -m deteccion.detector_agua
 python -m deteccion.detector_gameover
-python -m entorno.perceptor        # todos los detectores juntos (por ahora solo bananas y kong por optimizacion)
+python -m entorno.perceptor
 ```
- 
-Cada detector abre una ventana con las detecciones en tiempo real. Presioná `q` para cerrar.
  
 ---
  
@@ -572,11 +675,21 @@ python -m entrenamiento.entrenar
 python -m entrenamiento.entrenar --continuar
 ```
  
-Los checkpoints se guardan automáticamente en `modelos/checkpoints/` cada 10.000 steps.
- 
 ---
  
-### 7. Monitorear el entrenamiento
+### 7. Evaluar el agente
+ 
+```bash
+# Evaluar modelo guardado (30 episodios)
+python -m entrenamiento.evaluar
+
+# Evaluar agente + baseline y comparar estadísticamente
+python -m entrenamiento.evaluar --ambos
+```
+
+---
+
+### 8. Monitorear el entrenamiento
  
 ```bash
 tensorboard --logdir logs/
@@ -584,7 +697,9 @@ tensorboard --logdir logs/
  
 Abrí `http://localhost:6006` en el navegador para ver las curvas de recompensa en tiempo real.
 
-## 14. Referencias
+---
+
+## 15. Referencias
 
 1. V. Mnih et al., "Human-level control through deep reinforcement learning," *Nature*, vol. 518, pp. 529–533, 2015.
 2. OpenAI, "OpenAI Five," 2019. https://openai.com/five
