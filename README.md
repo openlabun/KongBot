@@ -1,706 +1,238 @@
 # Bot Autónomo para Banana Kong - Aprendizaje por Refuerzo
-
+ 
 **Universidad del Norte - Facultad de Ingeniería de Sistemas**  
 **Proyecto Final - Grupo 2 - Aprendizaje por Refuerzo**  
 **Kidman Cabana, Santiago Romero - Barranquilla, Colombia - 2026**
-
+ 
 ---
-
+ 
 ## Tabla de Contenidos
-
+ 
 1. [Introducción](#1-introducción)
 2. [Planteamiento del Problema](#2-planteamiento-del-problema)
-3. [Restricciones y Supuestos](#3-restricciones-y-supuestos)
-4. [Alcance del Proyecto](#4-alcance-del-proyecto)
-5. [Objetivos](#5-objetivos)
-6. [Estado del Arte](#6-estado-del-arte)
-7. [Propuesta de Solución](#7-propuesta-de-solución)
-8. [Implementación Técnica](#8-implementación-técnica)
-9. [Decisiones de Diseño y Alternativas Evaluadas](#9-decisiones-de-diseño-y-alternativas-evaluadas)
-10. [Requerimientos](#10-requerimientos)
-11. [Criterios de Aceptación](#11-criterios-de-aceptación)
-12. [Cronograma del Proyecto](#12-cronograma-del-proyecto)
-13. [Diagramas](#13-diagramas)
-14. [Instalación y Uso](#14-instalación-y-uso)
-15. [Referencias](#15-referencias)
-
+3. [Objetivos](#3-objetivos)
+4. [Estado del Arte](#4-estado-del-arte)
+5. [Diseño y Arquitectura](#5-diseño-y-arquitectura)
+6. [Implementación](#6-implementación)
+7. [Plan de Pruebas](#7-plan-de-pruebas)
+8. [Referencias](#8-referencias)
+ 
 ---
-
+ 
 ## 1. Introducción
-
-Banana Kong es un videojuego de plataformas y carrera continua (*endless runner*) desarrollado por FDG Entertainment, disponible para plataformas móviles Android e iOS. El juego presenta a un gorila que debe desplazarse por una selva tropical recolectando plátanos, esquivando obstáculos y utilizando animales de apoyo para avanzar. Su espacio de acciones reducido (salto/planeo, dash y agacharse) lo convierte en un candidato adecuado para el entrenamiento de un agente basado en aprendizaje por refuerzo.
-
-Este proyecto propone construir un agente que perciba el juego exclusivamente a través de la pantalla y ejecute acciones simulando entradas de teclado, sin acceso a la memoria del juego ni modificación del APK. El módulo de percepción usa visión por computador (OpenCV) con detectores especializados por tipo de objeto; el módulo de decisión usa PPO (Proximal Policy Optimization) implementado con Stable-Baselines3 con frame stacking de 4 estados consecutivos.
-
+ 
+Banana Kong es un videojuego de plataformas y carrera continua (*endless runner*) desarrollado por FDG Entertainment, disponible para plataformas móviles Android e iOS. El juego presenta a un gorila que debe desplazarse por una selva tropical recolectando plátanos, esquivando obstáculos y utilizando animales de apoyo para avanzar. Su espacio de acciones reducido (salto y planeo, dash y agacharse) lo convierte en un candidato adecuado para el entrenamiento de un agente basado en aprendizaje por refuerzo, dado que las decisiones son discretas y el entorno es visualmente consistente dentro de un mismo mundo.
+ 
+Este proyecto propone construir un agente autónomo que perciba el juego exclusivamente a través de la pantalla y ejecute acciones simulando entradas de teclado, sin acceso a la memoria del juego ni modificación del APK. El módulo de percepción utiliza visión por computador con OpenCV, implementando detectores especializados por tipo de objeto mediante estrategias híbridas de segmentación HSV y template matching. El módulo de decisión utiliza PPO (Proximal Policy Optimization) implementado con Stable-Baselines3, un algoritmo de gradiente de política con buena estabilidad de entrenamiento para espacios de acción discretos pequeños.
+ 
+Durante el semestre, el proyecto ha avanzado desde la conceptualización inicial hasta contar con un pipeline funcional completo: captura de pantalla, detección de objetos, entorno Gymnasium, entrenamiento con PPO y reinicio automático de episodios. Los primeros experimentos de entrenamiento con 250.000 pasos muestran una curva de aprendizaje positiva con recompensa promedio por episodio creciendo de 4 a 9, lo que valida la viabilidad del enfoque aunque evidencia que alcanzar el rendimiento objetivo requerirá sesiones de entrenamiento considerablemente más largas.
+ 
 ---
-
+ 
 ## 2. Planteamiento del Problema
-
-Los videojuegos comerciales son sistemas de caja negra: no exponen su estado interno mediante APIs públicas. La única información disponible para un agente externo es la imagen renderizada en pantalla. Esto genera una brecha técnica concreta: integrar captura visual, percepción computacional y ejecución de acciones en un pipeline coherente que opere en tiempo real es un problema de ingeniería no trivial, especialmente con hardware académico limitado.
-
-**Pregunta central:** ¿Es posible diseñar e implementar, bajo restricciones académicas de tiempo y hardware, un agente autónomo basado en aprendizaje por refuerzo que aprenda a jugar Banana Kong en un emulador Android para PC, utilizando únicamente información visual y simulación de entradas de teclado, alcanzando un puntaje promedio de 5.000–6.000 puntos por partida?
-
----
-
-## 3. Restricciones y Supuestos
-
-### 3.1 Restricciones Técnicas
-
+ 
+### 2.1 Descripción del Problema
+ 
+Los videojuegos comerciales son sistemas de caja negra: no exponen su estado interno mediante APIs públicas. La única información disponible para un agente externo es la imagen renderizada en pantalla. Esto genera una brecha técnica concreta: integrar captura visual, percepción computacional y ejecución de acciones en un pipeline coherente que opere en tiempo real es un problema de ingeniería no trivial, especialmente con hardware académico limitado. En el contexto específico de Banana Kong, el desafío se amplifica porque los objetos relevantes (Kong, barriles, bananas, muros, agua) tienen variaciones visuales significativas según el fondo, la iluminación del nivel y las animaciones en curso.
+ 
+**Pregunta central:** ¿Es posible diseñar e implementar, bajo restricciones académicas de tiempo y hardware, un agente autónomo basado en aprendizaje por refuerzo que aprenda a jugar Banana Kong en un emulador Android para PC, utilizando únicamente información visual y simulación de entradas de teclado, alcanzando una recompensa promedio por episodio (`ep_rew_mean`) entre 10 y 15?
+ 
+Un desafío adicional identificado durante el desarrollo es que alcanzar recompensas más ambiciosas (ep_rew_mean > 20) de forma consistente probablemente requeriría entrenamientos superiores al millón de pasos, un volumen que excede las restricciones de tiempo y hardware del proyecto académico. Los primeros experimentos con 250.000 pasos muestran que el modelo alcanzó ep_rew_mean = 10.46 en su mejor checkpoint (160k steps), con un máximo de 72.15 en episodios individuales, lo que valida que la meta de 10–15 es alcanzable y que el potencial del agente supera ampliamente su rendimiento promedio actual. Este hallazgo motiva investigación futura sobre técnicas que aceleren la convergencia, como curriculum learning, recompensas más densas o representaciones de estado más ricas.
+ 
+### 2.2 Restricciones y Supuestos
+ 
+**Restricciones técnicas:**
+ 
 - **Sin acceso interno al juego:** El sistema trata Banana Kong como caja negra. No se lee ni modifica la memoria del proceso, ni se inyecta código en el emulador.
 - **Captura exclusivamente visual:** Toda la información del estado proviene de capturas de pantalla con `mss`. No se usa audio, tráfico de red ni otras fuentes.
 - **Acciones mediante teclado simulado:** Las interacciones se ejecutan a través de `pyautogui` simulando las teclas configuradas en BlueStacks Game Controls. No se usa ADB por problemas de latencia y conflicto con eventos táctiles.
 - **Resolución fija 960×540:** Todos los detectores están calibrados para esta resolución. Cambiarla requiere recalibrar ROIs y umbrales.
 - **Latencia objetivo:** El ciclo completo captura → percepción → decisión → acción debe completarse en menos de 100 ms.
-- **Hardware de consumo:** Desarrollo en equipos con GPU AMD RX 9070 XT. El entrenamiento corre en CPU dado que ROCm (el equivalente de CUDA para AMD) no tiene soporte oficial en Windows.
-
-### 3.2 Restricciones del Entorno de Juego
-
-- **Meta de puntaje:** El agente debe alcanzar un puntaje promedio de **5.000–6.000 puntos** por episodio como criterio de éxito.
-- **Restricción de mundos alternativos:** El agente **no debe entrar a mundos alternativos** accesibles mediante cuevas, zonas de agua, cielo u otros portales. Estos mundos cambian radicalmente la paleta de colores, la geometría de obstáculos y la estructura del HUD, invalidando todos los detectores calibrados para el mundo principal (selva). Esta restricción se implementa penalizando fuertemente la detección de agua (que precede a las transiciones de mundo) y limitando el ROI de percepción.
+- **Hardware de consumo:** Desarrollo en equipos con GPU NVIDIA de gama media. Sin clústeres ni instancias cloud.
+ 
+**Restricciones del entorno de juego:**
+ 
+- **Meta de rendimiento:** El agente debe alcanzar una recompensa promedio por episodio (`ep_rew_mean`) **entre 10 y 15** como criterio de éxito del proyecto académico. Se adopta esta métrica en lugar del puntaje del juego porque el puntaje está influenciado por multiplicadores y power-ups que el agente no controla directamente, mientras que la recompensa es completamente observable, reproducible y alineada con lo que el agente realmente optimiza.
+- **Restricción de mundos alternativos:** El agente no debe entrar a mundos alternativos accesibles mediante cuevas (mina), zonas de agua (mundo submarino) o cohetes (zona aérea). Estos mundos cambian radicalmente la paleta de colores, la geometría de obstáculos y la estructura del HUD, invalidando todos los detectores calibrados para el mundo principal. La restricción se implementa mediante detección de las entradas a mundos alternativos y penalización de las acciones que llevan a ellas.
 - **Mundo único:** El agente opera exclusivamente en el mundo de la selva (mundo inicial). No se contemplan otros biomas.
 - **Configuración gráfica fija:** La ventana del emulador permanece en primer plano y visible durante toda la ejecución.
-
-### 3.3 Restricciones Normativas
-
-- El proyecto es estrictamente académico y no comercial.
-- No se redistribuye el APK del juego.
-- El bot opera exclusivamente en modalidad de un jugador (offline).
-
-### 3.4 Supuestos
-
-- Los elementos clave del juego son visualmente distinguibles con las técnicas implementadas en condiciones normales del mundo selva.
-- Los colores, formas y posiciones de los elementos del HUD y del entorno son consistentes entre partidas dentro del mismo mundo.
-- El juego no recibirá actualizaciones que cambien significativamente su interfaz visual durante el semestre.
-
----
-
-## 4. Alcance del Proyecto
-
-### Incluido
-
+ 
+**Restricciones normativas:** El proyecto es estrictamente académico y no comercial. No se redistribuye el APK del juego. El bot opera exclusivamente en modalidad de un jugador (offline).
+ 
+**Supuestos:** Los elementos clave del juego son visualmente distinguibles con las técnicas implementadas en condiciones normales del mundo selva. Los colores, formas y posiciones de los elementos del HUD y del entorno son consistentes entre partidas dentro del mismo mundo. El juego no recibirá actualizaciones que cambien significativamente su interfaz visual durante el semestre.
+ 
+### 2.3 Alcance
+ 
+**Incluido:**
+ 
 - Pipeline completo: captura → percepción → decisión → acción
-- Detectores especializados para: Kong, barriles, bananas, agua, rocas, muros (madera y piedra), game over
+- Detectores especializados para: Kong, barriles, bananas, agua, muros (madera y piedra), rocas, game over, mina y tubo amarillo
 - Entorno compatible con la interfaz OpenAI Gymnasium
-- Entrenamiento con PPO usando Stable-Baselines3 con frame stacking
+- Entrenamiento con PPO usando Stable-Baselines3
 - Reinicio automático de episodios
 - Evaluación frente a política aleatoria de referencia (*baseline*)
 - Documentación técnica completa
-
-### Excluido
-
+ 
+**Excluido:**
+ 
 - Soporte para múltiples juegos o biomas distintos al mundo selva
-- Detección de objetos interactivos opcionales (lianas, trampolines, guacamaya, plataformas flotantes) — se dejan para iteraciones futuras una vez consolidada la política básica de supervivencia
+- Detección de objetos interactivos opcionales (lianas, trampolines, guacamaya)
 - Interfaz gráfica de usuario (GUI): la ejecución es por línea de comandos
 - Modificación del APK, archivos del emulador o código del juego
 - Generalización a múltiples resoluciones o versiones del juego
-
+ 
 ---
-
-## 5. Objetivos
-
+ 
+## 3. Objetivos
+ 
 ### General
-
-Diseñar e implementar un agente autónomo basado en aprendizaje por refuerzo profundo que aprenda a jugar Banana Kong en un emulador Android para PC, utilizando exclusivamente información visual de la pantalla y simulación de teclado, alcanzando al final del semestre un puntaje promedio de 5.000–6.000 puntos por episodio, superior al de una política aleatoria de referencia.
-
+ 
+Diseñar e implementar un agente autónomo basado en aprendizaje por refuerzo profundo que aprenda a jugar Banana Kong en un emulador Android para PC, utilizando exclusivamente información visual de la pantalla y simulación de teclado, alcanzando al final del semestre una recompensa promedio por episodio (`ep_rew_mean`) entre 10 y 15, medida sobre los últimos 100 episodios del entrenamiento, superior al de una política aleatoria de referencia.
+ 
 ### Específicos
-
+ 
 1. Implementar un módulo de captura capaz de obtener fotogramas del emulador a mínimo 15 FPS con latencia individual menor a 50 ms.
 2. Desarrollar detectores de visión por computador para cada tipo de objeto relevante del juego, con precisión superior al 85% en condiciones normales del mundo selva.
 3. Diseñar y formalizar el entorno Gymnasium con espacio de estados, acciones y función de recompensa.
 4. Entrenar al menos un agente PPO durante un mínimo de 500.000 pasos, documentando curvas de aprendizaje.
 5. Evaluar el agente frente a una política aleatoria, demostrando mejora estadísticamente significativa en puntaje promedio por episodio en al menos 30 episodios.
-6. Documentar el sistema completo en este repositorio con READMEs, diagramas y resultados de experimentos.
-
+6. Documentar el sistema completo en el repositorio con READMEs, diagramas y resultados de experimentos.
+ 
+Los objetivos están ordenados por dependencia técnica: sin captura funcional no hay percepción, sin percepción no hay entorno, y sin entorno no hay entrenamiento. Esta cadena implica que los primeros objetivos son bloqueantes para los siguientes, lo que condicionó el plan de trabajo durante el semestre. La experiencia del proyecto también revela un desafío no anticipado: 500.000 pasos son suficientes para demostrar aprendizaje y acercarse a la meta de ep_rew_mean ∈ [10, 15], pero probablemente insuficientes para superarla de forma consistente con el hardware disponible. Esto abre una línea de trabajo futuro centrada en acelerar la convergencia mediante mejoras en el espacio de observación, la función de recompensa o el uso de técnicas como curriculum learning.
+ 
 ---
-
-## 6. Estado del Arte
-
-### 6.1 Aprendizaje por Refuerzo en Videojuegos
-
-El trabajo de Mnih et al. (2015) con DQN demostró que una red neuronal puede aprender políticas de juego competitivas directamente desde píxeles en juegos de Atari. Schulman et al. (2017) propusieron PPO, algoritmo de gradiente de política con mayor estabilidad de entrenamiento, que es el que utilizamos en este proyecto por su buen desempeño con espacios de acción discretos pequeños y su disponibilidad en Stable-Baselines3.
-
-### 6.2 Bots para Endless Runners
-
-Proyectos como el bot para Subway Surfers de Yeh et al. (2021) usaron visión por computador con OpenCV para detectar obstáculos mediante segmentación por color, sin aprendizaje automático. Lograron tiempos de supervivencia superiores al jugador promedio pero con robustez limitada a condiciones de color constante. Nuestro enfoque híbrido (HSV + template matching + RL) busca mayor generalización.
-
-### 6.3 Vacíos que Abordamos
-
-- Escasez de implementaciones académicas reproducibles de agentes RL visuales para juegos móviles en emulador
-- Ausencia de pipelines completos documentados que integren percepción clásica con RL para endless runners en plataformas de consumo
-- Falta de comparación directa entre detección puramente por color vs. detección híbrida para objetos con alta variación visual
-
+ 
+## 4. Estado del Arte
+ 
+### 4.1 Aprendizaje por Refuerzo en Videojuegos
+ 
+El trabajo de Mnih et al. (2015) con DQN demostró que una red neuronal puede aprender políticas de juego competitivas directamente desde píxeles en juegos de Atari, abriendo el campo del aprendizaje por refuerzo profundo aplicado a videojuegos. Esta aproximación requiere grandes volúmenes de experiencia (en el orden de millones de pasos) pero no necesita ningún conocimiento previo sobre la estructura del juego. En nuestro proyecto, procesar píxeles directamente mediante una política CNN (`CnnPolicy` en Stable-Baselines3) es técnicamente posible pero se descartó por las restricciones de hardware: un paso de entrenamiento con entrada visual es aproximadamente 10 veces más costoso que con un vector de características.
+ 
+Schulman et al. (2017) propusieron PPO, algoritmo de gradiente de política con mayor estabilidad de entrenamiento que sus predecesores (TRPO, A3C). PPO limita el cambio en la política en cada actualización mediante una función de pérdida con clip, lo que reduce el riesgo de colapso de política que se observa con learning rates altos. Esta propiedad es especialmente relevante en nuestro caso, donde los experimentos iniciales con `learning_rate=3e-4` mostraron exactamente ese problema: la recompensa alcanzó un pico en ~30.000 pasos y luego colapsó sostenidamente hasta los 300.000 pasos. Reducir la tasa a `1e-4` estabilizó el aprendizaje en sesiones posteriores.
+ 
+OpenAI Five (2019) y AlphaStar de DeepMind (2019) demostraron que los agentes de RL pueden alcanzar nivel de experto humano en juegos complejos, pero con recursos computacionales que están completamente fuera del alcance académico: miles de CPUs y GPUs operando durante semanas. Estos trabajos son relevantes no por ser replicables en nuestro contexto, sino porque establecen el límite superior de lo alcanzable con RL en videojuegos y muestran que la brecha entre un agente funcional y uno de nivel experto es fundamentalmente una cuestión de escala computacional.
+ 
+### 4.2 Bots para Endless Runners
+ 
+Proyectos como el bot para Subway Surfers de Yeh et al. (2021) usaron visión por computador con OpenCV para detectar obstáculos mediante segmentación por color, sin aprendizaje automático. Lograron tiempos de supervivencia superiores al jugador promedio pero con robustez limitada a condiciones de color constante. La principal debilidad de este enfoque es que las reglas de evasión deben codificarse manualmente: el sistema no aprende a esquivar, simplemente ejecuta heurísticas predefinidas. Nuestro enfoque híbrido, percepción clásica combinada con RL, busca mantener la confiabilidad de la detección visual mientras permite que el comportamiento de evasión emerja del aprendizaje.
+ 
+### 4.3 Vacíos que Abordamos
+ 
+La literatura académica muestra escasez de implementaciones reproducibles de agentes RL visuales para juegos móviles en emulador. La mayoría de los trabajos publicados operan sobre juegos de Atari o entornos sintéticos, donde existe acceso directo al estado interno del juego. Nuestro trabajo aborda el caso más restrictivo y realista de un juego comercial de caja negra, donde toda la información debe extraerse visualmente. Adicionalmente, la combinación de detección HSV y template matching como preprocesamiento para reducir el espacio de búsqueda antes del template matching es una contribución práctica: en lugar de buscar templates sobre el frame completo (costoso), se usan filtros de color para identificar candidatos y luego se aplica template matching solo sobre esos recortes, logrando una aceleración de 10-50x en la detección.
+ 
 ---
-
-## 7. Propuesta de Solución
-
-### 7.1 Arquitectura General
-
+ 
+## 5. Diseño y Arquitectura
+ 
+### 5.1 Evaluación de Alternativas
+ 
+Para el módulo de percepción se evaluaron tres enfoques principales. El primero fue procesar píxeles directamente con una red CNN (`CnnPolicy`), que tiene la ventaja de no requerir ingeniería manual de características pero demanda 10x más pasos de entrenamiento y es más sensible al sobreajuste con hardware limitado. El segundo fue usar solo segmentación por color HSV, que es rápido y simple pero genera demasiados falsos positivos para objetos que comparten colores con el fondo (muros de madera vs. troncos de árbol, ambos marrones). El tercero, adoptado en este proyecto, fue el enfoque híbrido HSV + template matching: HSV reduce el frame a un conjunto pequeño de blobs candidatos, y template matching corre solo sobre esos recortes, siendo 10-50x más rápido que buscar sobre el frame completo y más preciso que HSV solo.
+ 
+Para el algoritmo de RL se consideraron PPO, DQN y A3C. DQN es adecuado para espacios de acción discretos pequeños pero menos estable en entornos con recompensas dispersas. A3C requiere múltiples trabajadores paralelos, lo que complica la implementación cuando hay dependencia de una sola instancia del emulador. PPO fue seleccionado por su estabilidad documentada, disponibilidad en Stable-Baselines3 y buen desempeño reportado en la literatura para tareas similares con pocas acciones discretas.
+ 
+Para la simulación de controles se evaluaron ADB (Android Debug Bridge), `pyautogui` con gestos táctiles y `pyautogui` con teclas configuradas en BlueStacks Game Controls. ADB presentó problemas de latencia y conflicto con eventos táctiles nativos. Los gestos táctiles mediante drag causaban que BlueStacks interpretara el inicio del gesto como un tap, haciendo saltar a Kong antes del dash. La solución definitiva fue configurar el dash directamente como una tecla (`D`) en Game Controls, eliminando por completo la necesidad de simular gestos.
+ 
+### 5.2 Arquitectura
+ 
+La arquitectura del sistema sigue un pipeline secuencial con dos hilos de detección paralelos para maximizar el FPS:
+ 
 ```
 BlueStacks (960x540)
         │
         ▼
-┌─────────────────────────────────────────┐
-│              Perceptor                  │
-│  ┌──────────────────┐  ┌─────────────┐ │
-│  │   Hilo Rápido    │  │ Hilo Lento  │ │
-│  │ Kong + Bananas   │  │ Barriles    │ │
-│  │ + Colisiones     │  │ Rocas       │ │
-│  │ (~20 FPS)        │  │ Muros       │ │
-│  └────────┬─────────┘  │ Agua        │ │
-│           │             │ Game Over   │ │
-│           └──────┬──────┘             │ │
-│                  ▼                    │ │
-│            Estado compartido          │ │
-│            (threading.Lock)           │ │
-└──────────────────┬──────────────────-─┘
-                   │ estado (dict)
-                   ▼
-        ┌──────────────────┐
-        │  BananaKongEnv   │  Entorno Gymnasium:
-        │  (entorno.py)    │  obs vector 13 floats × 4 frames
-        │                  │  Calcula reward, detecta terminación
-        └────────┬─────────┘
-                 │ obs (52 floats con frame stacking)
-                 ▼
-        ┌──────────────────┐
-        │   PPO Agent      │  Stable-Baselines3 MlpPolicy
-        │ + VecFrameStack  │  selecciona acción 0-3
-        └────────┬─────────┘
-                 │ acción
-                 ▼
-        ┌──────────────────┐
-        │  ModuloAcciones  │  pyautogui: ejecuta tecla en BlueStacks
-        └──────────────────┘
+┌───────────────┐
+│    mss        │  Captura de pantalla
+└───────┬───────┘
+        │ frame BGR
+        ▼
+┌─────────────────────────────────┐
+│  Perceptor (dos hilos)          │
+│  ├── Hilo rápido: Kong, Bananas │
+│  └── Hilo lento: Obstáculos,    │
+│       GameOver, Agua, Mina, Tubo│
+└───────┬─────────────────────────┘
+        │ estado (dict con 15+ claves)
+        ▼
+┌───────────────┐
+│ BananaKongEnv │  Entorno Gymnasium
+│               │  obs vector (15 floats)
+│               │  reward, terminated
+└───────┬───────┘
+        │ obs
+        ▼
+┌───────────────┐
+│  PPO Agent    │  Stable-Baselines3 MlpPolicy
+└───────┬───────┘
+        │ acción (0-3)
+        ▼
+┌───────────────┐
+│ ModuloAcciones│  pyautogui: W / D / S
+└───────────────┘
 ```
-
-La arquitectura de dos hilos en el Perceptor es clave: el hilo rápido corre Kong y Bananas en cada frame (crítico para la detección de colisiones y el reward), mientras el hilo lento corre el resto de detectores con cadencias variables, sin bloquear al agente.
-
-### 7.2 Espacio de Acciones
-
-| ID | Acción | Tecla BlueStacks | Descripción |
-|----|--------|-----------------|-------------|
-| 0 | NADA | — | El juego avanza automáticamente |
-| 1 | PLANEAR | W | Tap = saltar; mantener = planear |
-| 2 | DASH | D | Impulso hacia adelante |
-| 3 | BAJAR | S | Deslizarse hacia abajo |
-
-**Nota sobre la implementación de controles:** Inicialmente se intentó simular el dash mediante `pyautogui.drag()`, lo que provocaba que BlueStacks registrara el inicio del drag como un tap, haciendo saltar a Kong antes del dash. La solución adoptada fue configurar el dash directamente en el **Game Controls de BlueStacks** como una tecla (`D`), eliminando por completo la necesidad de simular gestos táctiles.
-
-**Planeo implícito:** Mientras el agente seleccione PLANEAR en steps consecutivos, el módulo mantiene W presionado (`keyDown`). Al seleccionar cualquier otra acción, suelta W (`keyUp`). Esto permite que la duración del planeo emerja del comportamiento aprendido sin necesidad de una acción separada.
-
-### 7.3 Función de Recompensa
-
-| Evento | Recompensa |
-|--------|-----------|
-| Sobrevivir cada step | +0.02 |
-| Banana recogida | +1.0 por banana |
-| Game over | −10.0 |
-
-**Detección de bananas recogidas:** Se utiliza detección de colisión por bounding box entre el rect de Kong (expandido 10px) y los rects de bananas visibles. La lógica del pico de colisiones (`_pico_colisiones`) acumula el máximo de colisiones simultáneas y contabiliza cuando baja a cero, evitando doble conteo y falsos positivos por frames perdidos. Esta lógica corre en el hilo rápido del Perceptor a máxima velocidad, sin perder colisiones entre steps del agente.
-
-**Balance del reward:** El reward de supervivencia (+0.02/step) se calibró para que en un episodio de ~100 steps genere +2.0, inferior al costo del game over (−10.0). Esto incentiva sobrevivir sin que el agente aprenda que morir es gratuito.
-
-**Período de gracia:** El game over se ignora durante los primeros 10 steps de cada episodio para evitar falsos positivos durante la transición de pantalla del reinicio.
-
-### 7.4 Vector de Observación
-
-El estado se convierte a un vector de **13 floats normalizados [0, 1]**:
-
-```
-[0]   kong_cx
-[1]   kong_cy
-[2]   banana1_dx  (distancia horizontal relativa a Kong, centrado en 0.5)
-[3]   banana1_cy
-[4]   banana2_dx
-[5]   banana2_cy
-[6]   hay_agua    (0 o 1)
-[7]   barril1_dx  (distancia horizontal relativa a Kong)
-[8]   barril1_cy
-[9]   roca1_dx    (distancia horizontal relativa a Kong)
-[10]  roca1_cy
-[11]  muro1_dx    (distancia horizontal relativa a Kong)
-[12]  muro1_cy
-```
-
-Los obstáculos y bananas se expresan como **distancia horizontal relativa a Kong** (centrada en 0.5) en lugar de posición absoluta. Esto le da al agente información invariante: un valor de 0.7 siempre significa "el obstáculo está 0.2 a la derecha de Kong", independientemente de dónde esté Kong en pantalla.
-
-Con **frame stacking de 4 estados**, el observation space efectivo es de **52 floats**, permitiendo al agente inferir velocidad y dirección de los obstáculos a partir del cambio entre estados consecutivos.
-
----
-
-## 8. Implementación Técnica
-
-### 8.1 Módulo de Percepción — Arquitectura de Hilos
-
-El `Perceptor` opera con dos hilos de detección independientes más un hilo de display:
-
-**Hilo rápido** (corre en cada frame, ~20 FPS):
-- Detector de Kong (CSRT + HSV + Template Matching)
-- Detector de Bananas (HSV)
-- Lógica de colisión banana-Kong
-
-**Hilo lento** (cadencia por detector):
-- Game Over: cada 10 frames
-- Agua: cada 3 frames
-- Barriles: cada 2 frames
-- Rocas: cada 3 frames
-- Muros: cada 3 frames
-
-El estado compartido se protege con `threading.Lock()`. El agente nunca espera a los detectores — siempre lee el último estado disponible. Esta separación garantiza que la detección de colisiones (crítica para el reward de bananas) corre a máxima velocidad sin ser bloqueada por los detectores más lentos.
-
-### 8.2 Estrategia de Detección por Tipo de Objeto
-
-La mayoría de los detectores siguen un enfoque **híbrido HSV + Template Matching**:
-
-- **Solo HSV:** Insuficiente para objetos que comparten colores con el fondo. Da demasiados falsos positivos.
-- **Solo Template Matching:** Lento sobre el frame completo y sensible a variaciones de escala.
-- **Híbrido:** HSV reduce el frame a un conjunto pequeño de blobs candidatos. Template matching corre solo sobre esos recortes, siendo 10–50x más rápido y más preciso.
-
-| Detector | Estrategia | Razón |
-|----------|-----------|-------|
-| Kong | CSRT Tracker + HSV + Template multi-pose | CSRT para seguimiento fluido; HSV+Template para inicialización y recuperación |
-| Bananas | HSV (S≥180, amarillo) | Color muy distintivo; S alto excluye follaje y estatuas |
-| Agua | HSV (azul/celeste) | Color único en la escena |
-| Barriles | HSV (marrón V alto) + Template | V alto distingue interior brillante del suelo oscuro |
-| Rocas | Template matching (TM_CCOEFF_NORMED) a media resolución | Colores no separables del fondo con HSV |
-| Muros madera | HSV (naranja S>150) + Template | S alto distingue de troncos (S~100-120) |
-| Muros piedra | HSV (gris rosado) + Template | Rango estrecho de saturación |
-| Game Over | Template matching sobre ROI central | Pantalla estática, muy confiable |
-
-### 8.3 Detector de Kong — CSRT Tracker
-
-El detector de Kong usa una arquitectura de tres capas:
-
-1. **HSV + Template Matching:** Inicializa la detección. Busca blobs con color de piel de Kong en el ROI `(80, 60, 420, 510)` y verifica con template matching (9 poses: inicio, corriendo×2, saltando×2, paracaídas, dash, liana, guacamaya). Umbral de confianza: 0.65.
-
-2. **CSRT Tracker:** Una vez inicializado con el bounding box de Kong, sigue a Kong frame a frame sin depender del color. Es robusto ante cambios de apariencia y oclusiones parciales. Se valida en cada frame que el bbox esté dentro del ROI, tenga tamaño razonable (20–250px) y posición horizontal válida (cx entre 0.05 y 0.45).
-
-3. **Fallback:** Si CSRT falla, retorna la última posición conocida por máximo 10 frames mientras intenta reinicializar con HSV+Template.
-
-### 8.4 Configuración de ROIs
-
-```python
-ROI_KONG      = (80, 60, 420, 510)    # franja izquierda, excluye HUD
-ROI_BARRILES  = (160, 80, 900, 480)   # excluye zona de Kong
-ROI_BANANAS   = (160, 60, 960, 510)   # ROI amplio para colisión
-ROI_AGUA      = (0, 300, 960, 510)    # franja inferior
-ROI_GAMEOVER  = (200, 100, 760, 400)  # zona central de pantalla
-ROI_MUROS     = (200, 60, 960, 510)   # excluye zona de Kong
-ROI_ROCAS     = (200, 60, 960, 510)   # excluye zona de Kong
-```
-
-### 8.5 Entrenamiento
-
-```python
-PPO_CONFIG = {
-    "learning_rate": 2e-4,
-    "n_steps":       2048,
-    "batch_size":    128,
-    "n_epochs":      10,
-    "gamma":         0.99,
-    "gae_lambda":    0.95,
-    "clip_range":    0.2,
-    "ent_coef":      0.01,
-}
-
-N_STACK = 4  # frame stacking
-```
-
-```python
-env = DummyVecEnv([lambda: Monitor(BananaKongEnv(), RUTA_LOGS)])
-env = VecFrameStack(env, n_stack=N_STACK)
-modelo = PPO("MlpPolicy", env, **PPO_CONFIG)
-```
-
-```bash
-python -m entrenamiento.entrenar              # desde cero
-python -m entrenamiento.entrenar --continuar  # continuar desde checkpoint
-```
-
----
-
-## 9. Decisiones de Diseño y Alternativas Evaluadas
-
-Esta sección documenta las principales decisiones de diseño tomadas durante el desarrollo, junto con las alternativas evaluadas y los criterios de selección.
-
-### 9.1 Detección de Kong: Evolución del Enfoque
-
-**Problema:** Kong comparte colores muy similares con muros de madera (H=13-42, S=100-170) y otros elementos del fondo, haciendo que HSV solo genere demasiados falsos positivos.
-
-**Alternativas evaluadas:**
-
-| Alternativa | Resultado | Razón de descarte |
-|-------------|-----------|-------------------|
-| HSV puro | ❌ Inestable | Falsos positivos con muros y barriles |
-| HSV + Template Matching | ⚠️ Funcional pero titila | Sin memoria temporal entre frames |
-| KCF Tracker | ❌ Inestable | Titila en cambios de pose (dash, paracaídas) |
-| CSRT Tracker solo | ⚠️ Bueno pero se desvía | Sin mecanismo de corrección cuando pierde a Kong |
-| MOG2 (Background Subtraction) | ❌ Descartado | El fondo animado (árboles, nubes) genera demasiado ruido |
-| Franja HSV fija | ⚠️ Rápido pero impreciso | Kong en cx≈0.25 pero titila sin suavizado |
-| YOLO / Deep Learning | ❌ No viable en CPU | AMD RX 9070 XT sin soporte ROCm en Windows |
-
-**Decisión final:** CSRT + HSV + Template Matching en cascada. HSV+Template inicializa y recupera; CSRT sigue frame a frame con validación de bbox (ROI, tamaño, posición cx 0.05–0.45). Fallback de 10 frames si se pierde la detección.
-
-### 9.2 Detección de Bananas Recogidas: Evolución del Reward
-
-**Problema:** Contar bananas recogidas con precisión es crítico para el reward, pero varios enfoques fallaron.
-
-| Alternativa | Resultado | Problema |
-|-------------|-----------|---------|
-| `bananas_ahora < bananas_prev` | ❌ | Falsos positivos cuando bananas salen del ROI |
-| OCR del HUD (Tesseract) | ❌ | Demasiado lento para tiempo real |
-| TTL/cooldown por posición | ❌ | El escenario se mueve, posición cambia |
-| Delta de colisiones activas | ⚠️ | Pierde bananas en steps rápidos |
-| **Pico de colisiones en hilo rápido** | ✅ | Robusto, corre a máxima velocidad |
-
-**Decisión final:** Lógica del pico de colisiones (`_pico_colisiones`) corriendo en el hilo rápido del Perceptor. El pico acumula el máximo de colisiones simultáneas y contabiliza cuando baja a cero, independientemente de la velocidad del agente.
-
-### 9.3 Arquitectura del Perceptor: Un Hilo vs. Dos Hilos
-
-**Problema inicial:** Un solo hilo corría todos los detectores secuencialmente. El detector de Kong (CSRT) y los detectores lentos (muros con 9 escalas × 2 tipos) se bloqueaban mutuamente, causando que las colisiones de bananas se perdieran entre steps.
-
-**Decisión:** Separar en hilo rápido (Kong + Bananas) y hilo lento (resto). El GIL de Python impide paralelismo real en CPU, pero la separación garantiza que la lógica crítica de colisiones no se bloquea por los detectores costosos.
-
-**Limitación del GIL:** Se exploró `multiprocessing` para paralelismo real, pero el costo de serialización de frames entre procesos (cada frame BGR de 960×540 pesa ~1.5MB) resultó mayor que el beneficio. La arquitectura de dos hilos con estado compartido y `threading.Lock()` es el compromiso óptimo para este caso.
-
-### 9.4 Vector de Observación: Posición Absoluta vs. Relativa
-
-**Versión inicial (24 floats, posición absoluta):**
-```
-[0-1] kong_cx, kong_cy
-[2-7] barril1_cx, barril1_cy, barril2_cx, barril2_cy, ...
-```
-
-**Problema:** La posición absoluta de un barril no le dice al agente si está cerca o lejos de Kong. cx=0.5 puede ser peligroso o seguro dependiendo de dónde esté Kong.
-
-**Versión actual (13 floats, distancia relativa):**
-```
-[7] barril1_dx = clip(barril_cx - kong_cx + 0.5, 0, 1)
-```
-Un valor de 0.5 significa "en la misma posición que Kong"; >0.5 significa a la derecha; <0.5 a la izquierda. Esta representación es invariante a la posición de Kong en pantalla.
-
-### 9.5 Frame Stacking
-
-**Problema:** Con un solo estado, el agente no puede inferir velocidad ni dirección de los obstáculos. Un barril a cx=0.7 puede estar acercándose o alejándose — con un solo frame es imposible saberlo.
-
-**Alternativas consideradas:**
-
-| Alternativa | Evaluación |
-|-------------|-----------|
-| Estado único (sin stacking) | El agente ve posición pero no movimiento |
-| Agregar velocidad al vector | Requiere calcular deltas manualmente y añade ruido |
-| Frame stacking con imágenes (CnnPolicy) | Requiere cambiar toda la arquitectura a CNN; impracticable con detectores actuales |
-| **VecFrameStack con vectores (MlpPolicy)** | ✅ Trivial de implementar; observation space pasa de 13 a 52 floats |
-
-**Decisión final:** `VecFrameStack(env, n_stack=4)` de Stable-Baselines3. El agente recibe los últimos 4 estados concatenados (52 floats), permitiendo inferir velocidad sin cambios en los detectores ni en el entorno.
-
-### 9.6 Hiperparámetros PPO: Evolución
-
-| Experimento | Config | Resultado | Problema |
-|-------------|--------|-----------|---------|
-| PPO_6 | lr=1e-4, n_steps=1024, batch=64 | reward máx=12.33 | Alta varianza, oscilación |
-| PPO_7 | lr=3e-4, n_steps=512, batch=64, game_over=-20 | reward todo negativo | -20 dominó sobre reward positivo |
-| PPO_10 | lr=2e-4, n_steps=2048, batch=128, game_over=-10 | reward máx=5.08 ✅ | Tendencia positiva clara |
-
-**Config final:** `lr=2e-4` (compromiso entre velocidad y estabilidad), `n_steps=2048` (más experiencia por update, menor oscilación), `batch_size=128` (proporcional a n_steps), `ent_coef=0.01` (incentivo de exploración), `game_over=-10` (penalización proporcional al reward acumulado típico).
-
-### 9.7 Algoritmo de RL: PPO vs. Alternativas
-
-| Algoritmo | Evaluación para Banana Kong |
-|-----------|----------------------------|
-| **PPO** ✅ | Robusto con acciones discretas, estable con observaciones ruidosas, soporte nativo en SB3 |
-| DQN | Funciona con acciones discretas pero requiere replay buffer grande; menos estable con observaciones ruidosas |
-| SAC | Diseñado para acciones continuas; no aplica directamente |
-| QR-DQN | Variante distribucional de DQN; potencialmente mejor con rewards variables pero más complejo |
-| A3C/A2C | Requiere múltiples entornos paralelos; impracticable con un solo BlueStacks |
-
----
-
-## 10. Requerimientos
-
-### Funcionales
-
-| ID | Requerimiento |
-|----|--------------|
-| RF-01 | Capturar fotogramas del emulador a mínimo 15 FPS |
-| RF-02 | Detectar posición de Kong, barriles, bananas, rocas, muros y agua en cada frame |
-| RF-03 | Detectar fin de episodio (game over) con máximo 1s de latencia |
-| RF-04 | Reiniciar el juego automáticamente al final de cada episodio |
-| RF-05 | Exponer entorno compatible con OpenAI Gymnasium (step, reset, render) |
-| RF-06 | Entrenar agente PPO y guardar checkpoints periódicos |
-| RF-07 | Evaluar agente entrenado y comparar con política aleatoria |
-| RF-08 | Ejecutar acciones mediante teclas configuradas en BlueStacks |
-| RF-09 | Registrar métricas de entrenamiento en logs para TensorBoard |
-
-### No Funcionales
-
-| ID | Requerimiento |
-|----|--------------|
-| RNF-01 | Ciclo completo captura → decisión → acción < 100 ms (90% de los casos) |
-| RNF-02 | Captura sostenida ≥ 15 FPS durante sesiones de > 30 minutos |
-| RNF-03 | ROIs calibrados para resolución fija 960×540 de BlueStacks 5 |
-| RNF-04 | Sistema ejecutable con un solo comando desde terminal |
-| RNF-05 | Código organizado en módulos independientes con docstrings |
-| RNF-06 | Compatible con Windows 10/11, Python 3.9+, BlueStacks 5 |
-
----
-
-## 11. Criterios de Aceptación
-
-| ID | Criterio | Métrica |
-|----|----------|---------|
-| CA-01 | Captura funcional | ≥ 15 FPS durante 30 min continuas |
-| CA-02 | Latencia del pipeline | < 100 ms en el 90% de los ciclos |
-| CA-03 | Reinicio automático | Exitoso en ≥ 95% de los episodios |
-| CA-04 | Compatibilidad Gym | Entorno ejecuta episodios completos sin errores |
-| CA-05 | Entrenamiento completado | ≥ 500.000 pasos sin fallos críticos |
-| CA-06 | Superación de baseline | Puntaje promedio agente > baseline en 30 episodios (t-test p < 0.05) |
-| CA-07 | Meta de puntaje | Promedio ≥ 5.000 puntos por episodio tras entrenamiento completo |
-| CA-08 | Restricción de mundos | El agente no entra a mundos alternativos en ≥ 90% de episodios evaluados |
-| CA-09 | Repositorio documentado | README completo, instrucciones reproducibles, código comentado |
-
----
-
-## 12. Cronograma del Proyecto
-
-> **Versión del cronograma:** v2 (entrega `crono1`) — 2026-03-11
-
-| Semanas | Fase | Actividades principales | Prototipo |
-|---------|------|------------------------|-----------|
-| 1–2 | Selección del videojuego | Evaluación de candidatos, criterios de selección, decisión documentada, boceto del pipeline | P1: Documento de selección y justificación de Banana Kong |
-| 3–4 | Configuración del entorno | Instalación BlueStacks 960×540, configuración Game Controls (W/D/S), instalación de dependencias Python, benchmark FPS | P2: Captura funcional a ≥ 15 FPS con reporte de latencia en consola |
-| 4–7 | Módulo de percepción | Preparación de templates PNG con alpha; detectores de Kong (9 poses), bananas, agua, barriles, rocas (2 tipos), muros (madera y piedra), game over; integración en clase `Perceptor`; calibración de ROIs | P3: `perceptor.py` en modo demo con bounding boxes en tiempo real sobre todos los objetos |
-| 5–7 | Entorno Gymnasium | Diseño del espacio de observación (13 floats × 4 frames) y acciones (Discrete(4)); implementación de `BananaKongEnv`; función de recompensa con detección de colisión; reinicio automático en 3 pasos; período de gracia de 10 steps | P4: Entorno ejecutando episodios completos sin errores + `evaluar.py` con baseline aleatorio |
-| 7–8 | Integración del pipeline | Integración captura → percepción → decisión → acción; arquitectura de dos hilos en Perceptor; medición de latencia end-to-end; validación de ROIs en partidas reales | P5: Pipeline completo corriendo 5 episodios sin intervención manual, latencia p90 < 100 ms |
-| 8–13 | Entrenamiento RL con PPO | Configuración de hiperparámetros; corridas de 50k pasos para validación; ajuste de hiperparámetros y rewards; corrida completa ≥ 500k pasos con frame stacking y checkpoints cada 10k | P6: Checkpoint a 100k pasos con curva de reward creciente<br>P7: Modelo final `banana_kong_ppo.zip` a ≥ 500k pasos |
-| 13–14 | Evaluación | Evaluación formal agente PPO (30 episodios); evaluación baseline aleatorio (30 episodios); t-test de medias; verificación restricción de mundos alternativos | P8: Informe de evaluación con tabla de puntajes, t-test y distribución (boxplot) |
-| 14–15 | Optimización y robustez | Ajuste fino según fallos identificados; re-entrenamiento parcial si hay regresión; pruebas de robustez; corrección de detectores con mayor tasa de error | P9: Agente refinado con puntaje promedio ≥ 5.000 puntos |
-| 15–16 | Documentación y entrega | Limpieza del repositorio; actualización del README con resultados; reporte final; grabación de demo (≥ 3 episodios); presentación | P10: Entrega final con repositorio documentado, demo en video y todos los CA verificados |
-
-### Diagrama de Gantt
-
-```
-Sem →   1  2  3  4  5  6  7  8  9 10 11 12 13 14 15 16
-─────────────────────────────────────────────────────────
-Selección [P1]
-        ████
-Configuración [P2]
-              ████
-Percepción [P3]
-                 ████████████
-Entorno Gym [P4]
-                    ████████
-Integración [P5]
-                          ████
-Entrenamiento [P6→P7]
-                              ████████████████
-Evaluación [P8]
-                                          ████
-Optimización [P9]
-                                              ████
-Documentación [P10]
-                                                  ████
-─────────────────────────────────────────────────────────
-Entrega crono1: semana 4 (branch crono1)
-```
-
----
-
-## 13. Diagramas
-
-### Arquitectura del Sistema
-![Arquitectura](diagramas/arquitectura_sistemas.png)
-
-### Interacción entre Módulos
-![Módulos](diagramas/iteraccion_modulos.png)
-
-### Secuencia
-![Secuencia](diagramas/secuencia.png)
-
----
-
-## 14. Instalación y Uso
-
-### Requisitos
  
-- Python 3.9+
-- BlueStacks 5
-- GPU AMD o NVIDIA (opcional; el entrenamiento corre en CPU por limitaciones de soporte ROCm en Windows)
+La separación en hilo rápido (Kong y bananas, cada frame) y hilo lento (obstáculos y detectores costosos, cada 2-5 frames) permite mantener la detección de Kong fluida sin sacrificar la detección de obstáculos. El agente siempre lee el último estado disponible sin bloquearse, garantizando que el DELAY_ACCION de 50ms no se acumule con el tiempo de detección.
  
 ---
  
-### 1. Clonar el repositorio
+## 6. Implementación
  
-```bash
-git clone https://github.com/KidmanC/KongBot-Agente-Aut-nomo-para-Banana-Kong-mediante-Aprendizaje-por-Refuerzo
-```
+### 6.1 Stack Tecnológico
  
----
+| Tecnología | Rol | Justificación |
+|-----------|-----|--------------|
+| Python 3.9+ | Lenguaje principal | Ecosistema RL maduro |
+| OpenCV | Visión por computador | Template matching, HSV, contornos |
+| mss | Captura de pantalla | ~60 FPS, menor latencia que PIL |
+| Stable-Baselines3 | Algoritmo PPO | Implementación robusta y documentada |
+| Gymnasium | Interfaz entorno | Estándar de la industria para RL |
+| pyautogui | Simulación de teclado | Compatible con BlueStacks en Windows |
+| BlueStacks 5 | Emulador Android | Game Controls con teclas personalizables |
+| TensorBoard | Monitoreo | Curvas de aprendizaje en tiempo real |
  
-### 2. Crear entorno virtual e instalar dependencias
+El stack fue seleccionado priorizando madurez y disponibilidad de documentación. Todas las dependencias son de código abierto y están disponibles en PyPI, lo que facilita la reproducibilidad del proyecto.
  
-```bash
-python -m venv .venv
-```
+### 6.2 Componentes
  
-Activar el entorno virtual:
+**Detectores de visión por computador:** Cada tipo de objeto tiene su propio módulo detector en `deteccion/`. Todos siguen la estrategia híbrida HSV + template matching, excepto el game over (template matching puro sobre ROI pequeño) y el agua (HSV puro, color muy distintivo). Los templates se entregan como PNG con canal alpha real para usar la máscara en `cv2.matchTemplate(..., mask=alpha)`, lo que hace el matching más robusto ante variaciones de fondo. Se usa `TM_CCOEFF_NORMED` por ser más intuitivo (máximo = mejor coincidencia) y más robusto ante variaciones de brillo que `TM_SQDIFF_NORMED`.
  
-- **Windows:**
-  ```bash
-  .venv\Scripts\activate
-  ```
-- **Mac/Linux:**
-  ```bash
-  source .venv/bin/activate
-  ```
+**Perceptor:** Módulo central que coordina todos los detectores en dos hilos daemon. El hilo rápido captura y procesa Kong y bananas en cada iteración. El hilo lento procesa obstáculos pesados (barriles, rocas, muros, agua, mina, tubo) con cadencia configurable (cada 2-5 frames). El estado se protege con `threading.Lock()` y el agente siempre lee el último estado disponible sin bloquearse. Adicionalmente corre un tercer hilo de display que muestra bounding boxes en tiempo real a escala 50% para monitoreo visual durante el entrenamiento.
  
-Instalar dependencias:
+**Entorno Gymnasium (`BananaKongEnv`):** Implementa la interfaz estándar `step()` / `reset()`. El vector de observación contiene 15 floats normalizados en [0,1]: posición de Kong, distancias relativas a las 2 bananas más cercanas, flag de agua, distancia relativa al barril, roca y muro más cercanos, y distancias al tubo y mina si están visibles. Las recompensas son +0.02 por step de supervivencia, +1.0 por banana recogida y -10.0 por game over. El reinicio automático usa template matching para detectar la pantalla de "Revive" y "Play Again", con fallback a presionar W si no se encuentran.
  
-```bash
-pip install -r requirements.txt
-```
+**Módulo de acciones:** Implementa las 4 acciones discretas mediante `pyautogui`. La acción PLANEAR usa `keyDown`/`keyUp` para que el agente controle la duración del planeo implícitamente eligiendo la acción en steps consecutivos. Las teclas W, D, S están configuradas en BlueStacks Game Controls, eliminando la necesidad de simular gestos táctiles.
  
----
+### 6.3 Integraciones
  
-### 3. Configurar BlueStacks
- 
-#### Resolución
- 
-La resolución debe ser exactamente **960×540**. Para configurarla:
- 
-1. Abre BlueStacks y anda a **Configuración → Display**
-2. Resolución: `960 × 540`
-3. DPI: `240`
-4. Guarda y reiniciá BlueStacks
- 
-#### Desactivar anuncios
- 
-> **Importante:** Los anuncios de BlueStacks modifican el tamaño de la ventana de juego, lo que desplaza los ROIs de todos los detectores y causa fallos en la detección.
- 
-Para desactivarlos:
- 
-1. Abre BlueStacks → **Configuración → Preferencias**
-2. Busca la opción **"Permitir que BlueStacks muestre anuncios"** (o similar)
-3. **Desactivala**
-4. Reiniciá BlueStacks
- 
-#### Controles
- 
-Dentro del juego, abre el **Game Controls** (ícono de teclado en la barra lateral de BlueStacks) y configura las siguientes teclas:
- 
-| Tecla | Acción en el juego |
-|-------|-------------------|
-| `W` | Saltar / Planear |
-| `D` | Dash (impulso hacia adelante) |
-| `S` | Bajar / Deslizarse |
+La única integración externa es BlueStacks como emulador Android. El sistema se comunica con él exclusivamente a través de dos canales: captura de pantalla con `mss` (lectura) y simulación de teclado con `pyautogui` (escritura). No hay llamadas a APIs externas ni bases de datos. Los modelos entrenados se guardan como archivos `.zip` de Stable-Baselines3 y los logs de entrenamiento en formato TensorBoard en la carpeta `logs/`. Los checkpoints periódicos permiten retomar el entrenamiento desde cualquier punto.
  
 ---
  
-### 4. Estructura del proyecto
+## 7. Plan de Pruebas
  
-```
-Aprendizaje-por-refuerzo/
-│
-├── deteccion/
-│   ├── templates/
-│   │   ├── barril-bg.png
-│   │   ├── kong_corriendo1-bg.png
-│   │   ├── kong_corriendo3-bg.png
-│   │   ├── kong_dash-bg.png
-│   │   ├── kong_guacamaya-bg.png
-│   │   ├── kong_inicio-bg.png
-│   │   ├── kong_liana-bg.png
-│   │   ├── kong_paracaidas-bg.png
-│   │   ├── kong_saltando-bg.png
-│   │   ├── kong_saltando2-bg.png
-│   │   ├── muro_madera-bg.png
-│   │   ├── muro_piedra-bg.png
-│   │   ├── roca1-bg.png
-│   │   ├── roca2-bg.png
-│   │   ├── flecha.png
-│   │   ├── play_again.png
-│   │   └── revive_texto.png
-│   ├── __init__.py
-│   ├── detector_agua.py
-│   ├── detector_bananas.py
-│   ├── detector_barriles.py
-│   ├── detector_gameover.py
-│   ├── detector_kong.py
-│   ├── detector_muros.py
-│   └── detector_rocas.py
-│
-├── entorno/
-│   ├── __init__.py
-│   ├── entorno.py
-│   └── perceptor.py
-│
-├── entrenamiento/
-│   └── entrenar.py
-│
-├── controles/
-│   ├── __init__.py
-│   └── acciones.py
-│
-├── modelos/            ← generado automáticamente, en .gitignore
-├── logs/               ← generado automáticamente, en .gitignore
-├── requirements.txt
-├── .gitignore
-└── README.md
-```
+### 7.1 Pruebas por Componentes
+ 
+Cada detector se puede ejecutar de forma independiente mediante `python -m deteccion.detector_<nombre>`, que abre una ventana con el frame anotado en tiempo real. Los criterios de éxito por detector son: precisión superior al 85% (menos del 15% de falsos positivos o falsos negativos en condiciones normales del mundo selva), estabilidad en sesiones continuas de 5 minutos sin errores no controlados, y latencia de detección inferior a 20ms por frame para los detectores del hilo rápido. Durante el desarrollo se usaron sesiones de calibración visual para ajustar umbrales HSV, área mínima de blobs y umbral de confianza de template matching, guardando prints de debug con los valores reales de cada detección para análisis sistemático.
+ 
+El perceptor completo se prueba con `python -m entorno.perceptor`, que activa todos los detectores simultáneamente y muestra la ventana Debug con todas las bounding boxes superpuestas. Esta prueba verifica la integración del hilo rápido y lento, la ausencia de race conditions y el FPS resultante del sistema completo. Un FPS sostenido por encima de 10 en la ventana Debug indica que el sistema puede operar en tiempo real durante el entrenamiento.
+ 
+El entorno Gymnasium se valida con `gymnasium.utils.env_checker.check_env(env)`, que verifica que la implementación cumple la interfaz estándar: dimensiones correctas del espacio de observación y acción, tipos de dato correctos, ausencia de valores NaN o infinitos en las observaciones, y comportamiento correcto de `reset()` y `step()`. Este criterio de aceptación (CA-04) es necesario para garantizar compatibilidad con Stable-Baselines3.
+ 
+### 7.2 Pruebas de Integración
+ 
+La prueba de integración principal es el entrenamiento completo: `python -m entrenamiento.entrenar`. Esta prueba verifica que todos los componentes interactúan correctamente en el flujo completo: el Perceptor alimenta el entorno, el entorno alimenta el agente PPO, el agente ejecuta acciones en BlueStacks y el entorno detecta correctamente el game over y reinicia el episodio. Los criterios de éxito son: el entrenamiento corre sin errores críticos durante al menos 1 hora, los checkpoints se guardan correctamente cada 10.000 pasos, y la curva de recompensa muestra tendencia positiva en las primeras 50.000 iteraciones.
+ 
+El reinicio automático de episodios se evalúa midiendo la tasa de éxito del flujo completo revive → flecha → play again. Se considera exitoso si al menos el 95% de los episodios reinician correctamente sin intervención manual. Los casos de fallo, principalmente cuando las pantallas de revive no aparecen por entrar a mundos alternativos, se manejan con fallback de tecla W y timeout configurable.
+ 
+### 7.3 Pruebas de Evaluación del Agente
+ 
+La evaluación formal del agente se realiza comparándolo contra una política aleatoria de referencia (*baseline*) en al menos 30 episodios cada uno. Las métricas registradas son: recompensa total por episodio, número de bananas recogidas, duración del episodio en steps y puntaje del juego. La hipótesis nula es que el agente no supera al baseline, y se rechaza si el t-test de una cola da p < 0.05. Este criterio estadístico (CA-06) garantiza que la mejora observada no se debe al azar.
+ 
+La evaluación de la restricción de mundos alternativos (CA-08) se mide como la proporción de episodios en los que el agente no entra a la mina ni al tubo amarillo en un conjunto de 30 episodios evaluados. El criterio de aceptación es que esto ocurra en al menos el 90% de los episodios. Esta métrica es difícil de medir automáticamente dado que requeriría detectar visualmente el cambio de bioma; en su lugar, se monitorea manualmente durante las sesiones de evaluación y se registra el número de veces que aparece el mensaje de mundo alternativo en los logs de consola.
  
 ---
  
-### 5. Probar detectores individualmente
+## 8. Referencias
  
-```bash
-python -m deteccion.detector_kong
-python -m deteccion.detector_bananas
-python -m deteccion.detector_barriles
-python -m deteccion.detector_rocas
-python -m deteccion.detector_muros
-python -m deteccion.detector_agua
-python -m deteccion.detector_gameover
-python -m entorno.perceptor
-```
- 
----
- 
-### 6. Entrenar el agente
- 
-```bash
-# Entrenamiento desde cero
-python -m entrenamiento.entrenar
- 
-# Continuar entrenamiento previo
-python -m entrenamiento.entrenar --continuar
-```
- 
----
- 
-### 7. Evaluar el agente
- 
-```bash
-# Evaluar modelo guardado (30 episodios)
-python -m entrenamiento.evaluar
-
-# Evaluar agente + baseline y comparar estadísticamente
-python -m entrenamiento.evaluar --ambos
-```
-
----
-
-### 8. Monitorear el entrenamiento
- 
-```bash
-tensorboard --logdir logs/
-```
- 
-Abrí `http://localhost:6006` en el navegador para ver las curvas de recompensa en tiempo real.
-
----
-
-## 15. Referencias
-
 1. V. Mnih et al., "Human-level control through deep reinforcement learning," *Nature*, vol. 518, pp. 529–533, 2015.
 2. OpenAI, "OpenAI Five," 2019. https://openai.com/five
 3. O. Vinyals et al., "Grandmaster level in StarCraft II using multi-agent reinforcement learning," *Nature*, vol. 575, pp. 350–354, 2019.
@@ -711,3 +243,4 @@ Abrí `http://localhost:6006` en el navegador para ver las curvas de recompensa 
 8. A. Raffin et al., "Stable-Baselines3: Reliable Reinforcement Learning Implementations," *JMLR*, vol. 22, 2021.
 9. G. Bradski, "The OpenCV Library," *Dr. Dobb's Journal*, 2000.
 10. ScreenInfo, "mss: An ultra-fast cross-platform multiple screenshots module," https://python-mss.readthedocs.io
+ 
