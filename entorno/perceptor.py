@@ -76,7 +76,7 @@ class Perceptor:
         # Colisiones bananas
         self._bananas_recogidas = 0
         self._pico_colisiones   = 0
-        self.MARGEN_KONG        = 5
+        self.MARGEN_KONG        = 1
 
         # Arrancar hilos
         self._activo   = True
