@@ -19,11 +19,11 @@ import os
 ROI = (160, 80, 900, 480)
 
 # HSV del barril — interior brillante con V alto (distingue del suelo oscuro)
-BARRIL_HSV_BAJO = np.array([8,  80, 160])
+BARRIL_HSV_BAJO = np.array([8,  120, 160])
 BARRIL_HSV_ALTO = np.array([22, 240, 255])
 
 BARRIL_AREA_MIN = 600
-BARRIL_AREA_MAX = 6000
+BARRIL_AREA_MAX = 1400
 RATIO_MIN = 0.9  #0.6
 RATIO_MAX = 1.4
 SOLIDEZ_MIN = 0.60
@@ -167,6 +167,15 @@ class DetectorBarriles:
             cx = (x_real + bw/2) / frame.shape[1]
             cy = (y_real + bh/2) / frame.shape[0]
             barriles.append((cx, cy, (x_real, y_real, bw, bh)))
+
+            zona = roi[by:by+bh, bx:bx+bw]
+            hsv_zona = cv2.cvtColor(zona, cv2.COLOR_BGR2HSV)
+            h_med = int(np.median(hsv_zona[:,:,0]))
+            s_med = int(np.median(hsv_zona[:,:,1]))
+            v_med = int(np.median(hsv_zona[:,:,2]))
+            area_px = bw * bh
+            ratio   = round(bw / bh, 2) if bh > 0 else 0
+            #print(f"  Barril conf={val:.2f} | area={area_px} | ratio={ratio} | HSV=({h_med},{s_med},{v_med})")
 
             cv2.rectangle(frame_resultado, (x_real, y_real), (x_real+bw, y_real+bh), (0, 0, 255), 2)
             cv2.putText(frame_resultado, f"Barril {val:.2f}", (x_real, y_real-5),

@@ -26,7 +26,7 @@ import os
 # ── ROI ───────────────────────────────────────────────────────────────
 # Excluye HUD (top 60px) y zona de Kong (x < 250) para evitar confundir
 # el pelaje marrón de Kong con muros de madera.
-ROI = (200, 60, 960, 510)
+ROI = (180, 0, 960, 510)
 
 # ── HSV madera ────────────────────────────────────────────────────────
 # Naranja/dorado intenso. S_min=150 excluye troncos de árbol (S~100-120)

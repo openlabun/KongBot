@@ -134,7 +134,7 @@ class DetectorAgua:
                 time.sleep(1)
                 continue
 
-            hay_agua, cx, frame_resultado, mascara = self.detectar_agua(frame)
+            hay_agua, cx, frame_resultado, mascara, _ = self.detectar_agua(frame)
 
             if hay_agua:
                 print(f"💧 Agua detectada en cx={cx:.2f}")

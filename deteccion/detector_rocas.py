@@ -12,8 +12,8 @@ from mss import mss
 import time
 import os
 
-UMBRAL = 0.80
-ROI = (160, 0, 960, 510)
+UMBRAL = 0.7
+ROI = (140, 0, 960, 510)
 ESCALAS = [0.9, 1.0, 1.1]
 MIN_DISTANCIA = 50
 FACTOR_RESIZE = 0.5  # trabajar a mitad de resolución

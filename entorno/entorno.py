@@ -2,16 +2,22 @@
 entorno.py — Entorno Gymnasium simplificado para Banana Kong RL
 Resolución BlueStacks: 960x540
 
-Observación (9 valores normalizados [0,1]):
+Observación (13 valores normalizados [0,1]):
     [0] kong_cx
     [1] kong_cy
-    [2] banana1_cx  (banana más cercana a Kong)
+    [2] banana1_dx  (distancia horizontal relativa a Kong, centrado en 0.5)
     [3] banana1_cy
-    [4] banana2_cx
+    [4] banana2_dx
     [5] banana2_cy
     [6] hay_agua (0 o 1)
-    [7] barril1_cx  (barril más cercano a Kong)
+    [7] barril1_dx  (distancia horizontal relativa a Kong)
     [8] barril1_cy
+    [9] roca1_dx    (distancia horizontal relativa a Kong)
+    [10] roca1_cy
+    [11] muro1_dx   (distancia horizontal relativa a Kong)
+    [12] muro1_cy
+    [13] mina_dx    (distancia horizontal relativa a Kong)
+    [14] tubo_dx    (distancia horizontal relativa a Kong)
 
 Acciones (Discrete 4):
     0 - NADA
@@ -22,7 +28,7 @@ Acciones (Discrete 4):
 Recompensas:
     +1.0  por banana recogida
     +0.01 por sobrevivir cada step
-    -10.0 por game over
+    -20.0 por game over
 """
 
 import gymnasium as gym
@@ -38,8 +44,8 @@ from controles.acciones import ModuloAcciones, NADA, PLANEAR, DASH, BAJAR
 MAX_STEPS      = 2000
 DELAY_ACCION   = 0.05
 DELAY_REINICIO = 3.0
-OBS_SIZE       = 9
-MARGEN_KONG    = 10
+OBS_SIZE       = 15
+MARGEN_KONG    = 2
 
 
 class BananaKongEnv(gym.Env):
@@ -61,7 +67,6 @@ class BananaKongEnv(gym.Env):
 
         self._step_count      = 0
         self._total_bananas   = 0
-        self._pico_colisiones = 0
         self._reward_episodio = 0.0
         self.perceptor.reset_colisiones()
         self._primer_episodio = True
@@ -80,7 +85,6 @@ class BananaKongEnv(gym.Env):
 
         self._step_count      = 0
         self._total_bananas   = 0
-        self._pico_colisiones = 0
         self._reward_episodio = 0.0
         self.perceptor.reset_colisiones()
 
@@ -103,12 +107,22 @@ class BananaKongEnv(gym.Env):
         self._ultimo_frame  = estado.get("frame")
         self._ultimo_estado = estado
 
+
+        '''
+        # Penalizar DASH cerca de mina o tubo
+        if accion == DASH and (estado.get("mina") or estado.get("tubo")):
+            print("⚠️  Penalizando DASH cerca de mina/tubo")
+            reward_dash_penalty = -5.0
+        else:
+            reward_dash_penalty = 0.0
+        '''
+
         # Reward
-        reward  = 0.01
+        reward  = 0.02 # + reward_dash_penalty
         reward += bananas_recogidas * 1.0
 
         terminated = False
-        if estado["game_over"] and self._step_count > 60:
+        if estado["game_over"] and self._step_count > 10:
             reward    -= 10.0
             terminated = True
 
@@ -159,6 +173,38 @@ class BananaKongEnv(gym.Env):
         if barriles:
             obs[7] = np.clip(barriles[0][0] - kong_cx + 0.5, 0.0, 1.0)
             obs[8] = barriles[0][1]
+
+        # Roca más cercana — distancia horizontal relativa
+        rocas = sorted(
+            estado.get("rocas", []),
+            key=lambda p: abs(p[0] - kong_cx)
+        )
+        if rocas:
+            obs[9]  = np.clip(rocas[0][0] - kong_cx + 0.5, 0.0, 1.0)
+            obs[10] = rocas[0][1]
+
+        # Muro más cercano — distancia horizontal relativa
+        muros_pos = []
+        for mx, my, mw, mh in estado.get("muros_rects", []):
+            cx_m = (mx + mw/2) / 960
+            cy_m = (my + mh/2) / 540
+            muros_pos.append((cx_m, cy_m))
+        muros_pos = sorted(muros_pos, key=lambda p: abs(p[0] - kong_cx))
+        if muros_pos:
+            obs[11] = np.clip(muros_pos[0][0] - kong_cx + 0.5, 0.0, 1.0)
+            obs[12] = muros_pos[0][1]
+
+        # Mina — distancia horizontal relativa
+        if estado.get("mina_pos"):
+            obs[13] = np.clip(estado["mina_pos"][0] - kong_cx + 0.5, 0.0, 1.0)
+        else:
+            obs[13] = 0.5  # sin mina = neutro
+
+        # Tubo — distancia horizontal relativa
+        if estado.get("tubo_pos"):
+            obs[14] = np.clip(estado["tubo_pos"][0] - kong_cx + 0.5, 0.0, 1.0)
+        else:
+            obs[14] = 0.5  # sin tubo = neutro
 
         return obs
 

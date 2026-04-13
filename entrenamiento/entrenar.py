@@ -14,24 +14,28 @@ import sys
 from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import CheckpointCallback
 from stable_baselines3.common.monitor import Monitor
+from stable_baselines3.common.vec_env import DummyVecEnv, VecFrameStack
 
 from entorno.entorno import BananaKongEnv
+
+N_STACK = 4  # número de estados apilados
 
 # Configuracion
 RUTA_MODELO      = "modelos/banana_kong_ppo"
 RUTA_LOGS        = "logs/"
 RUTA_CHECKPOINTS = "modelos/checkpoints/"
-TOTAL_TIMESTEPS  = 5_000
+TOTAL_TIMESTEPS  = 50_000
 GUARDAR_CADA     = 10_000
 
 PPO_CONFIG = {
     "learning_rate":   3e-4,
-    "n_steps":         512,
-    "batch_size":      64,
+    "n_steps":         2048,
+    "batch_size":      128,
     "n_epochs":        10,
     "gamma":           0.99,
     "gae_lambda":      0.95,
     "clip_range":      0.2,
+    #"ent_coef":       0.01,
     "verbose":         1,
     "tensorboard_log": RUTA_LOGS,
 }
@@ -67,8 +71,8 @@ def main():
     time.sleep(3)
 
     print("Inicializando entorno...")
-    env = BananaKongEnv()
-    env = Monitor(env, RUTA_LOGS)
+    env = DummyVecEnv([lambda: Monitor(BananaKongEnv(), RUTA_LOGS)])
+    env = VecFrameStack(env, n_stack=N_STACK)
 
     checkpoint_callback = CheckpointCallback(
         save_freq=GUARDAR_CADA,

@@ -19,6 +19,8 @@ from deteccion.detector_agua     import DetectorAgua
 from deteccion.detector_barriles import DetectorBarriles
 from deteccion.detector_rocas    import DetectorRocas
 from deteccion.detector_muros    import DetectorMuros
+from deteccion.detector_mina     import DetectorMina
+from deteccion.detector_tubo     import DetectorTubo
 
 GAMEOVER_CADA = 10
 
@@ -37,6 +39,8 @@ class Perceptor:
         self.det_barriles = DetectorBarriles()
         self.det_rocas    = DetectorRocas()
         self.det_muros    = DetectorMuros()
+        self.det_mina     = DetectorMina()
+        self.det_tubo     = DetectorTubo()
         print("✅ Detectores listos")
 
         # Cadencia de cada detector
@@ -44,6 +48,8 @@ class Perceptor:
         self.BARRILES_CADA = 2
         self.ROCAS_CADA    = 3
         self.MUROS_CADA    = 3
+        self.MINA_CADA     = 5
+        self.TUBO_CADA     = 5
 
         # Últimos resultados
         self._ultimo_gameover    = False
@@ -55,6 +61,12 @@ class Perceptor:
         self._ultimo_rocas          = []
         self._ultimo_rocas_rects    = []
         self._ultimo_muros_rects    = []
+        self._ultimo_mina           = False
+        self._ultimo_mina_pos       = None
+        self._ultimo_mina_rect      = None
+        self._ultimo_tubo           = False
+        self._ultimo_tubo_pos       = None
+        self._ultimo_tubo_rect      = None
 
         # Estado compartido
         self._estado      = self._estado_vacio()
@@ -64,7 +76,7 @@ class Perceptor:
         # Colisiones bananas
         self._bananas_recogidas = 0
         self._pico_colisiones   = 0
-        self.MARGEN_KONG        = 10
+        self.MARGEN_KONG        = 5
 
         # Arrancar hilos
         self._activo   = True
@@ -101,53 +113,10 @@ class Perceptor:
             "height": self.ventana.height,
         }
 
-    # ── Hilo rápido: Kong + Bananas + colisiones ─────────────────────
+    # ── Hilo rápido: Kong + Bananas + colisiones + GameOver ──────────
     def _loop_rapido(self):
         sct = mss()
-        fps_t = time.time()
-        fps_c = 0
         while self._activo:
-            try:
-                if self.ventana is None:
-                    self.actualizar_ventana()
-                    time.sleep(0.5)
-                    continue
-
-                screenshot = sct.grab(self._get_monitor())
-                arr = np.array(screenshot)
-                if arr is None or arr.size == 0 or arr.shape[0] == 0:
-                    time.sleep(0.05)
-                    continue
-                frame = cv2.cvtColor(arr, cv2.COLOR_BGRA2BGR)
-
-                kong_pos, _, kong_pose, kong_rect, _ = self.det_kong.detectar_kong(frame)
-                cantidad, _, contornos, rects = self.det_bananas.detectar_bananas(frame)
-
-                h_f, w_f = frame.shape[:2]
-                bananas_pos = []
-                for cnt in contornos:
-                    x, y, bw, bh = cv2.boundingRect(cnt)
-                    bananas_pos.append(((x + bw/2) / w_f, (y + bh/2) / h_f))
-
-                self._detectar_colisiones(kong_rect, rects)
-
-                with self._lock:
-                    self._estado["kong"]      = kong_pos
-                    self._estado["kong_rect"] = kong_rect
-                    self._estado["kong_pose"] = kong_pose
-                    self._estado["bananas"]   = {"cantidad": cantidad, "posiciones": bananas_pos, "rects": rects}
-                    self._estado["frame"]     = frame
-
-                fps_c += 1
-                if time.time() - fps_t >= 5.0:
-                    fps = fps_c / (time.time() - fps_t)
-                    print(f"[hilo-rapido] FPS real: {fps:.1f}")
-                    fps_c = 0
-                    fps_t = time.time()
-
-            except Exception as e:
-                print(f"[perceptor-rapido] error: {e}")
-                time.sleep(0.1)
             try:
                 if self.ventana is None:
                     self.actualizar_ventana()
@@ -226,6 +195,18 @@ class Perceptor:
                     muros, _, _ = self.det_muros.detectar_muros(frame)
                     self._ultimo_muros_rects = [m["rect"] for m in muros]
 
+                if self._frame_count % self.MINA_CADA == 0:
+                    hay_mina, mina_pos, mina_rect, _ = self.det_mina.detectar_mina(frame)
+                    self._ultimo_mina      = hay_mina
+                    self._ultimo_mina_pos  = mina_pos
+                    self._ultimo_mina_rect = mina_rect
+
+                if self._frame_count % self.TUBO_CADA == 0:
+                    hay_tubo, tubo_pos, tubo_rect, _ = self.det_tubo.detectar_tubo(frame)
+                    self._ultimo_tubo      = hay_tubo
+                    self._ultimo_tubo_pos  = tubo_pos
+                    self._ultimo_tubo_rect = tubo_rect
+
                 with self._lock:
                     self._estado["barriles"]      = self._ultimo_barriles
                     self._estado["barriles_rects"] = self._ultimo_barriles_rects
@@ -236,6 +217,12 @@ class Perceptor:
                     self._estado["agua_cx"]     = self._agua_cx
                     self._estado["agua_rects"]  = self._ultimo_agua_rects
                     self._estado["game_over"]   = self._ultimo_gameover
+                    self._estado["mina"]        = self._ultimo_mina
+                    self._estado["mina_pos"]    = self._ultimo_mina_pos
+                    self._estado["mina_rect"]   = self._ultimo_mina_rect
+                    self._estado["tubo"]        = self._ultimo_tubo
+                    self._estado["tubo_pos"]    = self._ultimo_tubo_pos
+                    self._estado["tubo_rect"]   = self._ultimo_tubo_rect
 
             except Exception as e:
                 print(f"[perceptor-lento] error: {e}")
@@ -267,8 +254,9 @@ class Perceptor:
             return n
 
     def reset_colisiones(self):
-        self._bananas_recogidas = 0
-        self._pico_colisiones   = 0
+        self._bananas_recogidas  = 0
+        self._pico_colisiones    = 0
+        self._ultimo_gameover    = False
 
     # ── API pública ───────────────────────────────────────────────────
     def get_estado(self):
@@ -341,10 +329,26 @@ class Perceptor:
                 ah2 = int(ah * ESCALA)
                 cv2.rectangle(small, (ax2, ay2), (ax2+aw2, ay2+ah2), (0, 255, 0), 1)
 
-            # Panel info
-            cv2.rectangle(small, (3, 3), (200, 50), (0, 0, 0), -1)
+            # Mina — naranja
+            if estado.get("mina") and estado.get("mina_rect"):
+                mx, my, mw, mh = [int(v * ESCALA) for v in estado["mina_rect"]]
+                cv2.rectangle(small, (mx, my), (mx+mw, my+mh), (0, 255, 0), 1)
+                #cv2.putText(small, "MINA", (mx, my - 4),
+                            #cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 165, 255), 1)
+
+            # Tubo — amarillo
+            if estado.get("tubo") and estado.get("tubo_rect"):
+                tx, ty, tw, th = [int(v * ESCALA) for v in estado["tubo_rect"]]
+                cv2.rectangle(small, (tx, ty), (tx+tw, ty+th), (0, 255, 0), 1)
+                #cv2.putText(small, "TUBO", (tx, ty - 4),
+                            #cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 255), 1)
+
+            # Panel infos
+            ##'''
+            #cv2.rectangle(small, (3, 3), (200, 50), (0, 0, 0), -1)
             cv2.putText(small, f"Bananas: {self._total_bananas}  Step: {self._step_count}",
                         (6, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 255), 1)
+            ##'''
             if estado["game_over"]:
                 cv2.putText(small, "GAME OVER", (6, 40),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
@@ -375,6 +379,12 @@ class Perceptor:
             "agua_cx":     None,
             "agua_rects":  [],
             "game_over":   False,
+            "mina":        False,
+            "mina_pos":    None,
+            "mina_rect":   None,
+            "tubo":        False,
+            "tubo_pos":    None,
+            "tubo_rect":   None,
             "frame":       None,
         }
 
