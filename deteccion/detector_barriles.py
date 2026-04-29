@@ -16,7 +16,7 @@ import time
 import os
 
 # ROI — empieza donde termina Kong (tercio izquierdo excluido)
-ROI = (160, 80, 900, 480)
+ROI = (195, 80, 900, 480)
 
 # HSV del barril — interior brillante con V alto (distingue del suelo oscuro)
 BARRIL_HSV_BAJO = np.array([8,  120, 160])
@@ -28,7 +28,7 @@ RATIO_MIN = 0.9  #0.6
 RATIO_MAX = 1.4
 SOLIDEZ_MIN = 0.60
 MARGEN_BLOB = 12
-UMBRAL = 0.75
+UMBRAL = 0.73
 ESCALAS = [0.8, 0.9, 1.0, 1.1, 1.2]
 TEMPLATES_DIR = os.path.join(os.path.dirname(__file__), "templates")
 

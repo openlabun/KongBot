@@ -50,7 +50,7 @@ PIEDRA_RATIO_HW_MAX = 7.0
 SOLIDEZ_MIN         = 0.45
 
 # ── Template matching ─────────────────────────────────────────────────
-UMBRAL = 0.62
+UMBRAL = 0.6
 ESCALAS       = [0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4]
 MARGEN_BLOB   = 15
 

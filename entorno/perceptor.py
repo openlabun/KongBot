@@ -44,12 +44,12 @@ class Perceptor:
         print("✅ Detectores listos")
 
         # Cadencia de cada detector
-        self.AGUA_CADA     = 3
-        self.BARRILES_CADA = 2
-        self.ROCAS_CADA    = 3
-        self.MUROS_CADA    = 3
-        self.MINA_CADA     = 5
-        self.TUBO_CADA     = 5
+        self.AGUA_CADA     = 1
+        self.BARRILES_CADA = 1
+        self.ROCAS_CADA    = 1
+        self.MUROS_CADA    = 1
+        self.MINA_CADA     = 1
+        self.TUBO_CADA     = 1
 
         # Últimos resultados
         self._ultimo_gameover    = False
@@ -76,7 +76,7 @@ class Perceptor:
         # Colisiones bananas
         self._bananas_recogidas = 0
         self._pico_colisiones   = 0
-        self.MARGEN_KONG        = 1
+        self.MARGEN_KONG        = 10
 
         # Arrancar hilos
         self._activo   = True
