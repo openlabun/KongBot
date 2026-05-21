@@ -110,6 +110,16 @@ La resolución debe ser exactamente **960×540**:
 3. **Desactívala**
 4. Reinicia BlueStacks
 
+**Modo avión (alternativa):**
+
+Si los anuncios persisten, activa el modo avión del emulador:
+
+1. En la **barra lateral derecha** de BlueStacks, busca el ícono de **Modo avión**
+2. Actívalo para desconectar BlueStacks de internet
+3. Esto elimina cualquier anuncio que dependa de conexión de red
+
+> El modo avión es la opción más efectiva, ya que bloquea anuncios que no se desactivan desde Preferencias.
+
 **Controles**
 
 Dentro del juego, abre el **Game Controls** (ícono de teclado en la barra lateral de BlueStacks). La configuración **no se hace tecla por tecla**, se usa un control de tipo **SWIPE**:
@@ -235,7 +245,7 @@ Para verificar que todo funciona correctamente:
 | Problema | Causa | Solución |
 |---|---|---|
 | Detectores no encuentran objetos | Resolución incorrecta | Configurar BlueStacks a 960×540 exactamente |
-| Falsos positivos constantes | Anuncios de BlueStacks activos | Desactivar anuncios en Preferencias |
+| Falsos positivos constantes | Anuncios de BlueStacks activos | Desactivar anuncios en Preferencias o activar Modo avión |
 | Kong salta antes del dash | Controles mal configurados | Usar SWIPE nativo, no gestos manuales |
 | Template no encontrado | Archivo PNG sin canal alpha | Regenerar templates con fondo transparente |
 | Ventana de BlueStacks no detectada | Título de ventana cambiado | Verificar que el título contenga "BlueStacks" |
