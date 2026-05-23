@@ -187,11 +187,67 @@ La literatura muestra escasez de implementaciones reproducibles de agentes RL vi
 
 ### 7.1 Evaluación de Alternativas
 
-**Módulo de percepción:** Se evaluaron tres enfoques. El procesamiento directo de píxeles con CNN tiene la ventaja de no requerir ingeniería manual de características pero demanda 10x más pasos de entrenamiento. La segmentación HSV pura es rápida pero genera falsos positivos para objetos que comparten colores con el fondo. El enfoque híbrido HSV + template matching, adoptado en este proyecto, combina la velocidad del filtrado por color con la precisión del matching: HSV reduce el frame a un conjunto pequeño de blobs candidatos y template matching corre solo sobre esos recortes.
+**Módulo de percepción:**
 
-**Algoritmo de RL:** Se consideraron PPO, DQN y A3C. DQN puede ser más rápido en algunos casos pero es más sensible a hiperparámetros y menos estable con recompensas dispersas. A3C requiere múltiples trabajadores paralelos, lo que complica la implementación con una sola instancia del emulador. PPO fue seleccionado por su estabilidad documentada, disponibilidad en Stable-Baselines3 y buen desempeño reportado en tareas con pocas acciones discretas.
+| Criterio | CNN end-to-end | HSV pura | HSV + Template (elegido) |
+|---|---|---|---|
+| Falsos positivos | ++ (bajo con suficientes datos) | -- (alto: confunde objetos del mismo color) | + (bajo: TM filtra candidatos) |
+| Latencia por frame | ~50 ms (en GPU) | ~5 ms | ~8–15 ms |
+| Hardware requerido | GPU dedicada | CPU | CPU |
+| Ingeniería manual | No requiere | Umbrales HSV por objeto | Umbrales HSV + templates por objeto |
+| Pasos de entrenamiento | ~10⁷ (Atari, Mnih et al. 2015) | N/A (heurístico) | N/A (heurístico) |
+| Escalabilidad a nuevos objetos | Alta (re-entrenar red) | Baja (nuevos umbrales) | Media (nuevo template + umbrales) |
 
-**Simulación de controles:** Se evaluaron ADB, `pyautogui` con gestos táctiles y `pyautogui` con teclas de BlueStacks Game Controls. ADB presentó problemas de latencia. Los gestos táctiles mediante drag causaban que BlueStacks interpretara el inicio del gesto como un tap, haciendo saltar a Kong antes del dash. La solución definitiva fue configurar cada acción como una tecla en Game Controls, eliminando la necesidad de simular gestos.
+El procesamiento directo de píxeles con CNN tiene la ventaja de no requerir ingeniería manual de características pero demanda ~10⁷ pasos de entrenamiento incluso para juegos simples. La segmentación HSV pura es rápida (~5 ms por frame) pero genera falsos positivos en objetos que comparten colores con el fondo selvático. El enfoque híbrido HSV + template matching combina la velocidad del filtrado por color con la precisión del matching (~3–10 ms adicionales), eliminando la mayoría de falsos positivos sin necesidad de GPU.
+
+**Algoritmo de RL:**
+
+| Criterio | DQN | A3C | PPO (elegido) |
+|---|---|---|---|
+| Tipo | Off-policy | On-policy (async) | On-policy |
+| Estabilidad de entrenamiento | -- (sensible a hiperparámetros) | + (estable con muchos workers) | ++ (clip evita colapsos) |
+| Workers requeridos | 1 | Varios (típ. 8–16) | 1 |
+| Sample efficiency | ++ (reusa experiencias) | + | -- (descarta experiencia) |
+| Disponible en Stable-Baselines3 | Sí | No | Sí |
+| Idoneidad para 4 acciones discretas | + | + | ++ (reportado en literatura) |
+| Recompensas dispersas | -- (dificultad para propagar) | + | + (estable) |
+
+DQN puede converger más rápido por ser off-policy, pero es más sensible a hiperparámetros y menos estable con recompensas dispersas. A3C requiere múltiples workers paralelos, lo que complica la implementación con una sola instancia del emulador. PPO fue seleccionado por su estabilidad documentada (Schulman et al., 2017), disponibilidad en Stable-Baselines3 y buen desempeño reportado en tareas con espacios de acción discretos pequeños.
+
+**Simulación de controles:**
+
+| Criterio | ADB | Gestos drag (pyautogui) | Teclas Game Controls (elegido) |
+|---|---|---|---|
+| Latencia media | ~200 ms | ~50 ms | ~5 ms |
+| Tap accidental al iniciar drag | No | Sí (BS interpreta como tap) | No (gesto nativo SWIPE) |
+| Configuración requerida | USB/WiFi + depuración USB | Game Controls drag | Game Controls SWIPE + Tap |
+| Dependencia externa | adb.exe en PATH | pyautogui | pyautogui |
+
+ADB presentó latencias de ~200 ms que comprometían el cumplimiento de RNF-01 (ciclo < 100 ms). Los gestos táctiles mediante `pyautogui.drag` causaban que BlueStacks interpretara el inicio del gesto como un tap, haciendo saltar a Kong antes del dash. La solución definitiva fue configurar cada acción como un control SWIPE en BlueStacks Game Controls, eliminando la necesidad de simular gestos y reduciendo la latencia a ~5 ms.
+
+**Arquitectura del pipeline de percepción:**
+
+| Criterio | Hilo único | 2 hilos daemon (elegido) |
+|---|---|---|
+| Throughput Kong + Bananas | Bajo (compite con 7 detectores más) | **33–38 FPS** (medido, ver sección 10.1) |
+| Throughput obstáculos | Bajo | **20–22 FPS** c/cadencia 2 (medido, ver sección 10.1) |
+| Estado disponible para el agente | No si un detector lento se ejecuta | **Sí, siempre** (lectura sin espera) |
+| Complejidad de implementación | Baja | Media (Lock, daemon join, cadencias) |
+
+En pruebas iniciales con un solo hilo ejecutando los 9 detectores en serie, el throughput era de ~11 FPS, insuficiente para el mínimo de 15 FPS establecido. La separación en dos hilos con cadencias configurables elevó el FPS del hilo rápido a 33–38 y del hilo lento a 20–22, ambos por encima del mínimo requerido.
+
+**Representación del estado (observación):**
+
+| Criterio | Píxeles raw (CNN) | Vector de 23 features (elegido) |
+|---|---|---|
+| Dimensión | 960 × 540 × 3 ≈ 1.5 × 10⁶ | 23 |
+| Pasos de entrenamiento estimados | ~10⁷ (Mnih et al., 2015) | ~5 × 10⁵ (este proyecto) |
+| Política requerida | CnnPolicy (más parámetros) | MlpPolicy (menos parámetros) |
+| Hardware para entrenar | GPU recomendada | CPU suficiente |
+| Interpretabilidad de features | Baja (caja negra) | Alta (cada feature tiene significado) |
+| Tiempo de inferencia | ~10–20 ms (GPU) | ~1–2 ms (CPU) |
+
+Entrenar una política directamente desde píxeles requeriría ~10⁷ pasos y una CNN con GPU. Dado que el hardware disponible era CPU y el presupuesto de entrenamiento era de ~500.000 pasos, se optó por un vector de 23 features extraídas manualmente. Esto permitió usar una `MlpPolicy` liviana (~1 ms de inferencia) y reducir las muestras necesarias en ~20× respecto a un enfoque end-to-end.
 
 ### 7.2 Arquitectura
 
