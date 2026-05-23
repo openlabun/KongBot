@@ -356,7 +356,6 @@ La **Fig. 2** detalla la secuencia de llamadas entre componentes durante un paso
 **Fig. 2.** *Secuencia de interacción entre módulos durante un paso del agente.*
 
 ```mermaid
-%%{init: {'themeVariables': {'actorBorder': '#000', 'actorTextColor': '#000', 'actorLineColor': '#000', 'signalColor': '#000', 'signalTextColor': '#000', 'noteTextColor': '#000', 'noteBorderColor': '#000'}}}%%
 sequenceDiagram
     participant PPO as Decisión (PPO)
     participant ENV as Entorno (Gymnasium)
@@ -392,7 +391,6 @@ La **Fig. 3** ilustra la separación temporal entre los hilos rápido y lento, c
 **Fig. 3.** *Separación temporal entre los hilos de percepción.*
 
 ```mermaid
-%%{init: {'themeVariables': {'actorBorder': '#000', 'actorTextColor': '#000', 'actorLineColor': '#000', 'signalColor': '#000', 'signalTextColor': '#000', 'noteTextColor': '#000', 'noteBorderColor': '#000'}}}%%
 sequenceDiagram
     participant HL as Hilo Lento
     participant HR as Hilo Rápido
