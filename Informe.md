@@ -273,31 +273,36 @@ El Perceptor es el núcleo del sistema: recibe el frame capturado por `mss`, lo 
 
 **Módulo de acciones (`controles/acciones.py`):** Traduce las acciones discretas (0-3) a llamadas `pyautogui.keyDown` / `keyUp`. Mantiene el estado de la tecla W para controlar la duración del planeo. Cumple RF-08.
 
+La **Fig. 1** ilustra cómo estos componentes se conectan en el pipeline de datos.
+
+**Fig. 1.** *Arquitectura del pipeline de captura a acción.*
+
 ```mermaid
 flowchart TD
-    A["📺 BlueStacks 5\n960×540"]:::juego
-    B["📸 mss\nCaptura ~60 FPS"]:::captura
-    C["🔍 Perceptor\n2 hilos daemon"]:::percepcion
-    D["🏋️ BananaKongEnv\nGymnasium"]:::entorno
-    E["📦 VecFrameStack\n4×23 = 92 valores"]:::entorno
-    F["🧠 Agente PPO\nMlpPolicy"]:::decision
-    G["⌨️ pyautogui\nW / D / S"]:::accion
+    A["📺 BlueStacks 5\nEmulador Android (960×540)"]:::juego
+    B["📸 Captura de pantalla\nmss (~60 FPS)"]:::captura
+    C["🔍 Percepción visual\nOpenCV: 9 detectores (HSV+TM)"]:::percepcion
+    D["🏋️ Entorno de entrenamiento\nGymnasium (obs: 23 floats)"]:::entorno
+    E["📦 Pre-procesamiento temporal\nApila 4 observaciones → 92"]:::entorno
+    F["🧠 Decisión: Agente RL\nPPO (red neuronal)"]:::decision
+    G["⌨️ Acción en el juego\nSimula teclas W / D / S"]:::accion
 
     A -->|"frame BGR"| B
     B -->|"frame"| C
-    C -->|"estado dict\n15+ claves"| D
+    C -->|"estado 15+ claves"| D
     D -->|"obs 23 floats"| E
     E -->|"obs 92 floats"| F
     F -->|"acción 0-3"| G
-    G -.->|"teclas"| A
+    G -->|"teclas"| A
 
-    classDef juego fill:#fff3e0,stroke:#ff9800,stroke-width:2px,color:#333
-    classDef captura fill:#e3f2fd,stroke:#2196f3,stroke-width:2px,color:#333
-    classDef percepcion fill:#e8f5e9,stroke:#4caf50,stroke-width:2px,color:#333
-    classDef entorno fill:#f3e5f5,stroke:#9c27b0,stroke-width:2px,color:#333
-    classDef decision fill:#fce4ec,stroke:#e91e63,stroke-width:2px,color:#333
-    classDef accion fill:#fff8e1,stroke:#ffc107,stroke-width:2px,color:#333
+    classDef juego fill:#fff3e0,stroke:#ff9800,stroke-width:2px,color:#000
+    classDef captura fill:#e3f2fd,stroke:#2196f3,stroke-width:2px,color:#000
+    classDef percepcion fill:#e8f5e9,stroke:#4caf50,stroke-width:2px,color:#000
+    classDef entorno fill:#f3e5f5,stroke:#9c27b0,stroke-width:2px,color:#000
+    classDef decision fill:#fce4ec,stroke:#e91e63,stroke-width:2px,color:#000
+    classDef accion fill:#fff8e1,stroke:#ffc107,stroke-width:2px,color:#000
 ```
+
 
 #### 7.2.2.2 Componentes del Pipeline
 
@@ -346,13 +351,18 @@ El flujo de datos es unidireccional en su mayoría: la captura alimenta al Perce
 
 El Perceptor y el entorno están desacoplados mediante el patrón productor-consumidor: el Perceptor actualiza el estado continuamente en background y el entorno lee el último estado disponible al momento de cada `step()`, sin bloquearse. Esta separación es lo que permite al agente operar a ~5 FPS aunque los detectores corran más lento.
 
+La **Fig. 2** detalla la secuencia de llamadas entre componentes durante un paso del agente.
+
+**Fig. 2.** *Secuencia de interacción entre módulos durante un paso del agente.*
+
 ```mermaid
+%%{init: {'themeVariables': {'actorBorder': '#000', 'actorTextColor': '#000', 'actorLineColor': '#000', 'signalColor': '#000', 'signalTextColor': '#000', 'noteTextColor': '#000', 'noteBorderColor': '#000'}}}%%
 sequenceDiagram
-    participant PPO as Agente PPO
-    participant ENV as BananaKongEnv
-    participant PER as Perceptor
+    participant PPO as Decisión (PPO)
+    participant ENV as Entorno (Gymnasium)
+    participant PER as Percepción visual
     participant DET as Detectores
-    participant ACC as Acciones
+    participant ACC as Acción (teclas)
     participant BS as BlueStacks
 
     PPO->>ENV: step(accion)
@@ -377,7 +387,12 @@ El flujo principal es eficiente: el agente no espera a los detectores lentos por
 
 La latencia del ciclo completo captura → decisión → acción es de aproximadamente 50-70 ms, dentro del umbral de 100 ms establecido. Los detectores del hilo lento tienen latencias de 100-250 ms para mina y tubo (cadencia de 5 frames), pero esto es aceptable porque estos objetos aparecen con poca frecuencia y su posición no cambia rápidamente.
 
+La **Fig. 3** ilustra la separación temporal entre los hilos rápido y lento, con sus respectivas cadencias.
+
+**Fig. 3.** *Separación temporal entre los hilos de percepción.*
+
 ```mermaid
+%%{init: {'themeVariables': {'actorBorder': '#000', 'actorTextColor': '#000', 'actorLineColor': '#000', 'signalColor': '#000', 'signalTextColor': '#000', 'noteTextColor': '#000', 'noteBorderColor': '#000'}}}%%
 sequenceDiagram
     participant HL as Hilo Lento
     participant HR as Hilo Rápido
@@ -395,6 +410,7 @@ sequenceDiagram
     ENV->>ENV: get_estado() → lee último disponible
     ENV->>ENV: calcular reward + obs
 ```
+
 
 ---
 
