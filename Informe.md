@@ -148,7 +148,7 @@ OpenAI Five (2019) y AlphaStar de DeepMind (2019) demostraron que los agentes de
 
 ### 5.2 Bots para Endless Runners
 
-Proyectos como el bot para Subway Surfers de Yeh et al. (2021) usaron visión por computador con OpenCV para detectar obstáculos mediante segmentación por color, sin aprendizaje automático. Lograron tiempos de supervivencia superiores al jugador promedio pero con robustez limitada. La principal debilidad de este enfoque es que las reglas de evasión deben codificarse manualmente. El enfoque híbrido adoptado en este proyecto (percepción clásica combinada con RL) mantiene la confiabilidad de la detección visual mientras permite que el comportamiento de evasión emerja del aprendizaje.
+Tutoriales como el de detección de objetos en videojuegos de LearnCodeByGaming (2020) usaron visión por computador con OpenCV para localizar elementos en pantalla mediante template matching y segmentación HSV, sin aprendizaje automático. Lograron tiempos de supervivencia superiores al jugador promedio pero con robustez limitada. La principal debilidad de este enfoque es que las reglas de evasión deben codificarse manualmente. El enfoque híbrido adoptado en este proyecto (percepción clásica combinada con RL) mantiene la confiabilidad de la detección visual mientras permite que el comportamiento de evasión emerja del aprendizaje.
 
 ### 5.3 Vacíos Abordados
 
@@ -700,14 +700,36 @@ El vector de observación con flags de presencia para cada obstáculo fue una me
 
 ---
 
-## 12. Referencias
+## 12. Trabajo Futuro
+
+### 12.1 Evaluación Formal contra Baseline
+
+La evaluación del agente contra una política aleatoria de referencia con análisis estadístico (t-test, p < 0.05, 30 episodios) queda pendiente. Si bien las curvas de entrenamiento muestran mejora consistente, una evaluación controlada permitiría cuantificar con significancia estadística la diferencia respecto a un agente que solo presiona teclas al azar.
+
+### 12.2 Detección en Otros Mundos
+
+El agente opera exclusivamente en el mundo selva. Los detectores actuales (HSV + template matching) están calibrados para los colores y formas de ese bioma. En otros mundos del juego cambian las paletas de color, los tilesets y la disposición de obstáculos, lo que invalida los umbrales actuales. Implementar un detector de transición de mundo que pause la detección y recalibre ROIs y umbrales habilitaría al agente para operar en múltiples biomas.
+
+### 12.3 Entrenamiento Prolongado
+
+Las dos sesiones de 500.000 pasos mostraron mejora sostenida sin alcanzar una meseta clara, lo que sugiere que entrenamientos más largos (2–5 millones de pasos) podrían producir mejoras adicionales significativas. La tendencia positiva de `ep_rew_mean` al final de ambas sesiones respalda esta hipótesis.
+
+### 12.4 Detectores Faltantes y Calibración Automática
+
+Del mundo principal quedan sin detectores implementados: lianas (plataformas colgantes que permiten avance estratégico), trampolines (impulsan a Kong a alturas mayores) y la guacamaya (obstáculo volador con trayectoria errática). Agregar estos detectores permitiría al agente usar mecánicas de juego que actualmente ignora.
+
+Además, el pipeline de calibración actual es manual: cada umbral HSV, área mínima y nivel de confianza se ajustó observando detecciones en tiempo real. Un pipeline de calibración automática que ajuste estos parámetros a partir de screenshots etiquetados reduciría el trabajo manual y facilitaría el soporte a múltiples resoluciones y mundos.
+
+---
+
+## 13. Referencias
 
 1. V. Mnih et al., "Human-level control through deep reinforcement learning," *Nature*, vol. 518, pp. 529–533, 2015.
 2. OpenAI, "OpenAI Five," 2019. https://openai.com/five
 3. O. Vinyals et al., "Grandmaster level in StarCraft II using multi-agent reinforcement learning," *Nature*, vol. 575, pp. 350–354, 2019.
 4. J. Schulman et al., "Proximal Policy Optimization Algorithms," arXiv:1707.06347, 2017.
 5. V. Mnih et al., "Asynchronous Methods for Deep Reinforcement Learning," *ICML*, 2016.
-6. Y.-H. Yeh et al., "Automated Game Bot for Subway Surfers Using Computer Vision," *IEEE ICCE*, 2021.
+6. LearnCodeByGaming, "OpenCV Object Detection in Games" [Tutorial series], 2020. https://learncodebygaming.com/blog/tutorial/opencv-object-detection-in-games
 7. G. Brockman et al., "OpenAI Gym," arXiv:1606.01540, 2016.
 8. A. Raffin et al., "Stable-Baselines3: Reliable Reinforcement Learning Implementations," *JMLR*, vol. 22, 2021.
 9. G. Bradski, "The OpenCV Library," *Dr. Dobb's Journal*, 2000.
